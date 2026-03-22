@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Teams Shifts to ICS",
+  "version": "1.0",
+  "description": "Scrape Microsoft Teams Shifts and export to ICS calendar file",
+  "permissions": ["storage", "alarms", "downloads", "tabs", "scripting"],
+  "host_permissions": [
+    "https://teams.cloud.microsoft/*",
+    "https://flw.teams.cloud.microsoft/*",
+    "https://outlook.office.com/*",
+    "https://outlook.office365.com/*",
+    "https://graph.microsoft.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://teams.cloud.microsoft/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://flw.teams.cloud.microsoft/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*"
+      ],
+      "js": ["outlook_content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Teams Shifts to ICS"
+  }
+}

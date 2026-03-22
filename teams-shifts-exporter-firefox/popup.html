@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teams Shifts to ICS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      width: 280px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+    }
+
+    .header {
+      background: #313244;
+      padding: 14px 16px;
+      border-bottom: 1px solid #45475a;
+    }
+    .header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #cba6f7;
+    }
+    .header p {
+      font-size: 11px;
+      color: #a6adc8;
+      margin-top: 3px;
+    }
+
+    .body {
+      padding: 14px 16px;
+    }
+
+    .status-box {
+      background: #313244;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      border: 1px solid #45475a;
+    }
+    .status-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6c7086;
+      margin-bottom: 4px;
+    }
+    .status-value {
+      font-size: 12px;
+      color: #a6e3a1;
+    }
+    .status-value.none {
+      color: #6c7086;
+    }
+
+    .target-box {
+      background: #1e1e2e;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: #a6adc8;
+    }
+    .target-box span {
+      color: #89dceb;
+      font-weight: 500;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.88; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #exportBtn {
+      background: #cba6f7;
+      color: #1e1e2e;
+    }
+
+    .note {
+      margin-top: 12px;
+      font-size: 10.5px;
+      color: #585b70;
+      line-height: 1.5;
+    }
+    .note a {
+      color: #89b4fa;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+    .field label {
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6c7086;
+      margin-bottom: 4px;
+    }
+    .field input {
+      width: 100%;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: #cdd6f4;
+      outline: none;
+    }
+    .field input:focus {
+      border-color: #cba6f7;
+    }
+    .field-hint {
+      font-size: 10px;
+      color: #585b70;
+      margin-top: 4px;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      padding: 9px 12px;
+      margin-bottom: 14px;
+      cursor: pointer;
+      font-size: 12px;
+      color: #cdd6f4;
+    }
+    .toggle-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #cba6f7;
+      cursor: pointer;
+    }
+
+    #log {
+      margin-top: 10px;
+      font-size: 11px;
+      min-height: 18px;
+      color: #f38ba8;
+    }
+    #log.ok { color: #a6e3a1; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Teams Shifts to ICS</h1>
+    <p>Scrape &amp; export your shift schedule</p>
+  </div>
+
+  <div class="body">
+    <div class="target-box">
+      Exporting through <span id="targetDate">—</span>
+    </div>
+
+    <div class="status-box">
+      <div class="status-label">Last export</div>
+      <div class="status-value none" id="lastExport">Never</div>
+    </div>
+
+    <label class="toggle-row">
+      <span>Also import to Outlook calendar</span>
+      <input type="checkbox" id="importToOutlook" />
+    </label>
+
+    <label class="toggle-row">
+      <span>Include open shifts</span>
+      <input type="checkbox" id="includeOpenShifts" checked />
+    </label>
+
+    <button id="exportBtn">Export Now</button>
+    <button id="clearReimportBtn" style="margin-top:8px; background:#f38ba8; color:#1e1e2e;">Clear &amp; Re-import to Outlook</button>
+
+    <div id="log"></div>
+
+    <p class="note">
+      The ICS file downloads to your <strong>Downloads</strong> folder daily.<br>
+      To subscribe, import it into Apple Calendar, Google Calendar, or Outlook.<br>
+      <br>
+      Requires Teams Shifts to be open in a tab. Auto-export runs daily.
+    </p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
