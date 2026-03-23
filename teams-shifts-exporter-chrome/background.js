@@ -36,24 +36,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false } = {}) {
+  let scrapeWinId = null;
   try {
-    const tab = await getOrOpenTeamsShiftsTab(auto);
-    if (!tab) {
-      console.warn('[ShiftsExport] No Teams Shifts tab available.');
-      // Notify user if auto (they probably have Teams closed)
-      if (auto) {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icon.png',
-          title: 'Teams Shifts Export',
-          message: 'Auto-export skipped — Teams is not open. Open Teams and click Export.',
-        });
-      }
-      return { success: false, error: 'No Teams tab found' };
-    }
+    // Always open a fresh Teams tab in a minimized window so the scraper
+    // never touches the user's existing tabs or blocks their screen.
+    const win = await chrome.windows.create({ url: TEAMS_SHIFTS_URL, state: 'minimized' });
+    scrapeWinId = win.id;
+    const tab = win.tabs[0];
 
-    // Wait briefly for the page to be ready
-    await sleep(2000);
+    // Wait for Teams to load
+    await sleep(4000);
 
     // Step 1: inject into top frame and navigate to Shifts
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
@@ -69,7 +61,7 @@ async function runExport({ auto = false } = {}) {
     const shiftsFrame = frameResults.find(
       (r) => r.result && r.result.includes('flw.teams.cloud.microsoft')
     );
-    if (!shiftsFrame) throw new Error('Shifts iframe not found — make sure you are on teams.cloud.microsoft');
+    if (!shiftsFrame) throw new Error('Shifts iframe not found');
 
     // Step 3: inject content script into the iframe
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [shiftsFrame.frameId] }, files: ['content.js'] });
@@ -120,9 +112,6 @@ async function runExport({ auto = false } = {}) {
     const mergedEvents = await mergeWithHistory(events);
     const mergedICS = generateICS(mergedEvents);
 
-    const filename = buildFilename();
-    await downloadICS(mergedICS, filename);
-
     // Import to Outlook Web if the setting is enabled
     const { importToOutlook } = await chrome.storage.local.get('importToOutlook');
     let outlookResult = null;
@@ -137,30 +126,12 @@ async function runExport({ auto = false } = {}) {
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     return { success: false, error: err.message };
+  } finally {
+    // Always close the scraping window when done
+    if (scrapeWinId) {
+      try { await chrome.windows.remove(scrapeWinId); } catch {}
+    }
   }
-}
-
-async function getOrOpenTeamsShiftsTab(autoMode) {
-  // Look for an existing Teams tab
-  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
-
-  if (tabs.length > 0) {
-    // Prefer a tab that already has Shifts open
-    const shiftsTab = tabs.find(
-      (t) => t.url && (t.url.includes('scheduling') || t.url.includes('shifts'))
-    );
-    const tab = shiftsTab || tabs[0];
-
-    return tab;
-  }
-
-  // In auto mode, don't open a new tab without user interaction
-  if (autoMode) return null;
-
-  // In manual mode, open a new Teams Shifts tab
-  const newTab = await chrome.tabs.create({ url: TEAMS_SHIFTS_URL, active: true });
-  await sleep(4000); // wait for Teams to load
-  return newTab;
 }
 
 // ─── Outlook Web Import ───────────────────────────────────────────────────────
@@ -205,9 +176,10 @@ async function getOrOpenOutlookTab(autoMode) {
   // In auto mode, don't open a new Outlook tab unexpectedly
   if (autoMode) return null;
 
-  const newTab = await chrome.tabs.create({ url: OUTLOOK_CALENDAR_URL, active: true });
+  // Open Outlook in a minimized window so it doesn't interrupt the user
+  const win = await chrome.windows.create({ url: OUTLOOK_CALENDAR_URL, state: 'minimized' });
   await sleep(5000); // wait for Outlook Web to load
-  return newTab;
+  return win.tabs[0];
 }
 
 // ─── History Merging ──────────────────────────────────────────────────────────
@@ -334,6 +306,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     chrome.storage.local.set({ includeOpenShifts: msg.value });
     return false;
+  }
+
+  if (msg.action === 'DOWNLOAD_ICS') {
+    chrome.storage.local.get('lastICS', (data) => {
+      if (!data.lastICS) {
+        try { sendResponse({ success: false, error: 'No ICS available — run an export first.' }); } catch {}
+        return;
+      }
+      const filename = buildFilename();
+      downloadICS(data.lastICS, filename).then(() => {
+        try { sendResponse({ success: true }); } catch {}
+      }).catch((err) => {
+        try { sendResponse({ success: false, error: err.message }); } catch {}
+      });
+    });
+    return true;
   }
 
   if (msg.action === 'CLEAR_AND_REIMPORT') {

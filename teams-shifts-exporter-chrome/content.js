@@ -122,44 +122,12 @@
   // ─── UI Overlay ──────────────────────────────────────────────────────────
 
   function showOverlay(message) {
-    // Remove any stale overlay from a previous run
-    const old = document.getElementById('shifts-export-overlay');
-    if (old) old.remove();
-
-    const overlay = document.createElement('div');
-    overlay.id = 'shifts-export-overlay';
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      width: '100vw',
-      height: '100vh',
-      zIndex: '999999',
-      background: 'rgba(0,0,0,0.7)',
-      color: '#fff',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '28px',
-      fontFamily: 'sans-serif',
-      pointerEvents: 'auto',
-    });
-    overlay.textContent = message;
-
-    // Block pointer events on everything underneath
-    const style = document.createElement('style');
-    style.id = 'shifts-export-overlay-style';
-    style.textContent = 'body > *:not(#shifts-export-overlay) { pointer-events: none !important; }';
-    document.head.appendChild(style);
-    document.body.appendChild(overlay);
-
+    // Scraping runs in a minimized background window, so this overlay is not
+    // visible to the user — it just logs progress to the console.
+    console.info('[ShiftsExport]', message);
     return {
-      update(msg) { overlay.textContent = msg; },
-      remove() {
-        overlay.remove();
-        const s = document.getElementById('shifts-export-overlay-style');
-        if (s) s.remove();
-      },
+      update(msg) { console.info('[ShiftsExport]', msg); },
+      remove() {},
     };
   }
 

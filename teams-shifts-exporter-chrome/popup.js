@@ -35,6 +35,7 @@ function formatDate(ts) {
 // ─── Init ─────────────────────────────────────────────────────────────────────
 
 const exportBtn = document.getElementById('exportBtn');
+const downloadICSBtn = document.getElementById('downloadICSBtn');
 const logEl = document.getElementById('log');
 const lastExportEl = document.getElementById('lastExport');
 const targetDateEl = document.getElementById('targetDate');
@@ -100,18 +101,38 @@ clearReimportBtn.addEventListener('click', () => {
 
 // ─── Export Button ────────────────────────────────────────────────────────────
 
+downloadICSBtn.addEventListener('click', () => {
+  downloadICSBtn.disabled = true;
+  downloadICSBtn.textContent = 'Downloading...';
+  logEl.textContent = '';
+  logEl.className = '';
+
+  chrome.runtime.sendMessage({ action: 'DOWNLOAD_ICS' }, (response) => {
+    downloadICSBtn.disabled = false;
+    downloadICSBtn.textContent = 'Download ICS File';
+
+    if (response && response.success) {
+      logEl.textContent = 'ICS file saved to Downloads.';
+      logEl.className = 'ok';
+    } else {
+      logEl.textContent = `Error: ${response?.error || 'Unknown error'}`;
+      logEl.className = '';
+    }
+  });
+});
+
 exportBtn.addEventListener('click', () => {
   exportBtn.disabled = true;
-  exportBtn.textContent = 'Exporting...';
+  exportBtn.textContent = 'Syncing...';
   logEl.textContent = '';
   logEl.className = '';
 
   chrome.runtime.sendMessage({ action: 'EXPORT_NOW' }, (response) => {
     exportBtn.disabled = false;
-    exportBtn.textContent = 'Export Now';
+    exportBtn.textContent = 'Sync Shifts';
 
     if (response && response.success) {
-      logEl.textContent = `Done — ${response.count} shifts exported to Downloads.`;
+      logEl.textContent = `Done — ${response.count} shifts synced.`;
       logEl.className = 'ok';
 
       // Refresh status
