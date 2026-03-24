@@ -36,7 +36,7 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
 
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
-async function runExport({ auto = false } = {}) {
+async function runExport({ auto = false, skipICloud = false } = {}) {
   try {
     const tab = await getOrOpenTeamsShiftsTab(auto);
     if (!tab) {
@@ -119,10 +119,10 @@ async function runExport({ auto = false } = {}) {
       outlookResult = await importToOutlookWeb(mergedICS, auto);
     }
 
-    // Sync to iCloud Calendar via CalDAV if the setting is enabled
+    // Sync to iCloud Calendar via CalDAV if enabled (skipped when CLEAR_AND_REIMPORT handles it)
     const { importToiCloud } = await browser.storage.local.get('importToiCloud');
     let icloudResult = null;
-    if (importToiCloud) {
+    if (importToiCloud && !skipICloud) {
       icloudResult = await syncToiCloud(mergedEvents);
     }
 
@@ -610,10 +610,6 @@ class iCloudCalDAVClient {
 }
 
 async function clearAndResyncToiCloud() {
-  const OVERALL_TIMEOUT_MS = 60000;
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('iCloud clear & resync timed out after 60s')), OVERALL_TIMEOUT_MS)
-  );
   try {
     const { icloudEmail, icloudAppPassword, lastEvents } = await browser.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
     if (!icloudEmail || !icloudAppPassword) {
@@ -623,44 +619,31 @@ async function clearAndResyncToiCloud() {
       return { success: false, error: 'No shift data available — run a sync first.' };
     }
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
-    await Promise.race([
-      (async () => {
-        await client.connect();
-        const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-        await client.clearAllOurEvents(calendarUrl);
-        // Reset open shift tracking so all open shifts are re-added
-        await browser.storage.local.set({ syncedOpenShiftUids: [] });
-        await client.syncEvents(calendarUrl, lastEvents);
-      })(),
-      timeoutPromise,
-    ]);
+    await client.connect();
+    const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
+    await client.clearAllOurEvents(calendarUrl);
+    // Reset open shift tracking BEFORE re-syncing so all open shifts are re-added
+    await browser.storage.local.set({ syncedOpenShiftUids: [] });
+    await client.syncEvents(calendarUrl, lastEvents);
     console.info('[ShiftsExport] iCloud clear & resync complete —', lastEvents.length, 'events');
     return { success: true };
   } catch (err) {
     console.error('[ShiftsExport] iCloud clear & resync error:', err);
+    await browser.storage.local.set({ syncedOpenShiftUids: [] }).catch(() => {});
     return { success: false, error: err.message };
   }
 }
 
 async function syncToiCloud(events) {
-  const OVERALL_TIMEOUT_MS = 60000;
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('iCloud sync timed out after 60s')), OVERALL_TIMEOUT_MS)
-  );
   try {
     const { icloudEmail, icloudAppPassword } = await browser.storage.local.get(['icloudEmail', 'icloudAppPassword']);
     if (!icloudEmail || !icloudAppPassword) {
       return { success: false, error: 'iCloud credentials not configured — open the popup to save them.' };
     }
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
-    await Promise.race([
-      (async () => {
-        await client.connect();
-        const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-        await client.syncEvents(calendarUrl, events);
-      })(),
-      timeoutPromise,
-    ]);
+    await client.connect();
+    const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
+    await client.syncEvents(calendarUrl, events);
     console.info('[ShiftsExport] iCloud sync complete —', events.length, 'events');
     return { success: true };
   } catch (err) {
@@ -707,8 +690,8 @@ browser.runtime.onMessage.addListener((msg) => {
       try {
         const { importToOutlook, importToiCloud } = await browser.storage.local.get(['importToOutlook', 'importToiCloud']);
 
-        // Scrape fresh shifts
-        const exportResult = await runExport({ auto: false });
+        // Scrape fresh shifts — skip iCloud sync here; we handle it below with a full clear+resync
+        const exportResult = await runExport({ auto: false, skipICloud: true });
         if (!exportResult.success) {
           return { success: false, error: exportResult.error };
         }
