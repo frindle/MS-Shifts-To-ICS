@@ -575,7 +575,7 @@ class iCloudCalDAVClient {
     const syncedOpenShiftUids = new Set(storedUids);
 
     for (const event of events) {
-      const uid = `teams-shift-${event.startMs}`;
+      const uid = `teams-shift-${event.startMs}-${event.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
       currentUids.add(uid);
 
       if (event.isOpenShift) {
