@@ -138,6 +138,14 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
+    if (auto) {
+      chrome.notifications.create('sync-failed', {
+        type: 'basic',
+        iconUrl: 'icon.png',
+        title: 'Teams Shifts — Sync Failed',
+        message: err.message || 'The daily sync encountered an error. Open the extension to retry.',
+      });
+    }
     return { success: false, error: err.message };
   } finally {
     clearProgress();
