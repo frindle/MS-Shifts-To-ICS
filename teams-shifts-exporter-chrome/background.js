@@ -524,27 +524,49 @@ class iCloudCalDAVClient {
     }
   }
 
-  // Upsert all events, then delete stale future events that we own
+  // Sync events to iCloud:
+  // - Scheduled shifts: always upsert (add new, update existing)
+  // - Open shifts: only add if never synced before; if user deleted one from
+  //   iCloud, leave it deleted (don't re-add on subsequent syncs)
+  // - Stale future events no longer in Teams: delete from iCloud
   async syncEvents(calendarUrl, events) {
     const currentUids = new Set();
     const now = Date.now();
 
+    // Load the set of open shift UIDs we've already pushed to iCloud
+    const { syncedOpenShiftUids: storedUids = [] } = await chrome.storage.local.get('syncedOpenShiftUids');
+    const syncedOpenShiftUids = new Set(storedUids);
+
     for (const event of events) {
       const uid = `teams-shift-${event.startMs}`;
       currentUids.add(uid);
-      await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+
+      if (event.isOpenShift) {
+        // Only add open shifts we haven't pushed before
+        if (!syncedOpenShiftUids.has(uid)) {
+          await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+          syncedOpenShiftUids.add(uid);
+        }
+      } else {
+        // Scheduled shifts: always upsert
+        await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+      }
     }
 
-    // Only REPORT after all upserts to find candidates for deletion
+    // Delete stale future events that are no longer in Teams
     const existingOurEvents = await this.getOurEvents(calendarUrl);
     for (const [uid, { url }] of existingOurEvents) {
       if (currentUids.has(uid)) continue;
       const startMs = parseInt(uid.replace('teams-shift-', ''), 10);
       if (!isNaN(startMs) && startMs > now) {
         await this.deleteEvent(url);
+        syncedOpenShiftUids.delete(uid);
         console.info('[iCloud] Deleted stale event:', uid);
       }
     }
+
+    // Persist updated open shift tracking set
+    await chrome.storage.local.set({ syncedOpenShiftUids: [...syncedOpenShiftUids] });
   }
 
   // ── Regex-based XML helpers (DOMParser unavailable in MV3 service workers) ──
