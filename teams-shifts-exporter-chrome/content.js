@@ -281,7 +281,7 @@
       // "Shift. {weekday}, {Month} {day}, {start} - {end} {name}. {theme}. {notes}. Press Enter key..."
       // Notes segment is empty ("  .") when there are no notes.
       const match = ariaLabel.match(
-        /Shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
+        /Shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
       );
       if (!match) continue;
 
@@ -302,7 +302,7 @@
       // Open shift format (similar to regular shifts):
       // "Open shift. {weekday}, {Month} {day}, {start} - {end} {name}. {theme}. {notes}. Press Enter key..."
       const match = ariaLabel.match(
-        /Open\s+shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
+        /Open\s+shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
       );
       if (!match) continue;
 
