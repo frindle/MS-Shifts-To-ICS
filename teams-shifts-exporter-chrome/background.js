@@ -113,11 +113,14 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
-    // Filter out open shifts if the user disabled them
-    const { includeOpenShifts } = await chrome.storage.local.get('includeOpenShifts');
+    // Filter open shifts based on user settings
+    const { includeOpenShifts, filterConflictingOpenShifts } = await chrome.storage.local.get(['includeOpenShifts', 'filterConflictingOpenShifts']);
     let events = response.events || [];
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
+    } else if (filterConflictingOpenShifts) {
+      const scheduled = events.filter((e) => !e.isOpenShift);
+      events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
     }
 
     // Merge freshly scraped events with stored history, then rebuild ICS
@@ -308,6 +311,20 @@ async function downloadICS(icsContent, filename) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Returns true if the open shift has no overlap AND at least 8 hours gap
+// from every scheduled shift in the list.
+function isEligibleOpenShift(openShift, scheduledShifts) {
+  const minGapMs = 8 * 60 * 60 * 1000;
+  for (const s of scheduledShifts) {
+    if (openShift.startMs < s.endMs && openShift.endMs > s.startMs) return false; // overlap
+    const gap = openShift.startMs >= s.endMs
+      ? openShift.startMs - s.endMs
+      : s.startMs - openShift.endMs;
+    if (gap < minGapMs) return false;
+  }
+  return true;
 }
 
 // ─── Load Polling Helpers ─────────────────────────────────────────────────────
@@ -609,16 +626,21 @@ class iCloudCalDAVClient {
     }
 
     // Delete stale future events that are no longer in Teams
-    if (onProgress) onProgress('Removing old shifts…', 0.97);
+    if (onProgress) onProgress('Checking iCloud calendar…', 0.97);
+    await checkCancelled();
     const existingOurEvents = await this.getOurEvents(calendarUrl);
-    for (const [uid, { url }] of existingOurEvents) {
-      if (currentUids.has(uid)) continue;
+    const stale = [...existingOurEvents.entries()].filter(([uid]) => {
+      if (currentUids.has(uid)) return false;
       const startMs = parseInt(uid.replace('teams-shift-', ''), 10);
-      if (!isNaN(startMs) && startMs > now) {
-        await this.deleteEvent(url);
-        syncedOpenShiftUids.delete(uid);
-        console.info('[iCloud] Deleted stale event:', uid);
-      }
+      return !isNaN(startMs) && startMs > now;
+    });
+    for (let i = 0; i < stale.length; i++) {
+      const [uid, { url }] = stale[i];
+      await checkCancelled();
+      if (onProgress) onProgress(`Removing old shift ${i + 1} of ${stale.length}…`, 0.97 + (i / stale.length) * 0.02);
+      await this.deleteEvent(url);
+      syncedOpenShiftUids.delete(uid);
+      console.info('[iCloud] Deleted stale event:', uid);
     }
 
     // Persist updated open shift tracking set
@@ -750,6 +772,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     chrome.storage.local.set({ includeOpenShifts: msg.value });
+    return false;
+  }
+
+  if (msg.action === 'SET_FILTER_CONFLICTING_OPEN_SHIFTS') {
+    chrome.storage.local.set({ filterConflictingOpenShifts: msg.value });
     return false;
   }
 
