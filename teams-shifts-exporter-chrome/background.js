@@ -116,7 +116,7 @@ async function runExport({ auto = false } = {}) {
     }
 
     // Update last export time and store ICS for clear & re-import
-    await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS });
+    await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
 
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
@@ -524,6 +524,15 @@ class iCloudCalDAVClient {
     }
   }
 
+  // Delete every teams-shift-* event from the calendar regardless of date
+  async clearAllOurEvents(calendarUrl) {
+    const existingOurEvents = await this.getOurEvents(calendarUrl);
+    for (const [uid, { url }] of existingOurEvents) {
+      await this.deleteEvent(url);
+      console.info('[iCloud] Cleared event:', uid);
+    }
+  }
+
   // Sync events to iCloud:
   // - Scheduled shifts: always upsert (add new, update existing)
   // - Open shifts: only add if never synced before; if user deleted one from
@@ -595,6 +604,39 @@ class iCloudCalDAVClient {
     const m = re.exec(xml);
     if (!m) return null;
     return this._tagText(m[1], 'href');
+  }
+}
+
+async function clearAndResyncToiCloud() {
+  const OVERALL_TIMEOUT_MS = 60000;
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('iCloud clear & resync timed out after 60s')), OVERALL_TIMEOUT_MS)
+  );
+  try {
+    const { icloudEmail, icloudAppPassword, lastEvents } = await chrome.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
+    if (!icloudEmail || !icloudAppPassword) {
+      return { success: false, error: 'iCloud credentials not configured — open the popup to save them.' };
+    }
+    if (!lastEvents || !lastEvents.length) {
+      return { success: false, error: 'No shift data available — run a sync first.' };
+    }
+    const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
+    await Promise.race([
+      (async () => {
+        await client.connect();
+        const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
+        await client.clearAllOurEvents(calendarUrl);
+        // Reset open shift tracking so all open shifts are re-added
+        await chrome.storage.local.set({ syncedOpenShiftUids: [] });
+        await client.syncEvents(calendarUrl, lastEvents);
+      })(),
+      timeoutPromise,
+    ]);
+    console.info('[ShiftsExport] iCloud clear & resync complete —', lastEvents.length, 'events');
+    return { success: true };
+  } catch (err) {
+    console.error('[ShiftsExport] iCloud clear & resync error:', err);
+    return { success: false, error: err.message };
   }
 }
 
@@ -671,33 +713,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'CLEAR_AND_REIMPORT') {
     (async () => {
       try {
-        // First run the export to get fresh ICS
+        const { importToOutlook, importToiCloud } = await chrome.storage.local.get(['importToOutlook', 'importToiCloud']);
+
+        // Scrape fresh shifts
         const exportResult = await runExport({ auto: false });
         if (!exportResult.success) {
           try { sendResponse({ success: false, error: exportResult.error }); } catch {}
           return;
         }
 
-        // Get the stored ICS content
-        const { lastICS } = await chrome.storage.local.get('lastICS');
-        if (!lastICS) {
-          try { sendResponse({ success: false, error: 'No ICS content available' }); } catch {}
-          return;
+        const { lastICS, lastCount } = await chrome.storage.local.get(['lastICS', 'lastCount']);
+        let outlookResult = null;
+        let icloudResult = null;
+
+        // Clear + reimport to Outlook
+        if (importToOutlook) {
+          if (!lastICS) {
+            outlookResult = { success: false, error: 'No ICS content available' };
+          } else {
+            const outlookTab = await getOrOpenOutlookTab();
+            await chrome.scripting.executeScript({
+              target: { tabId: outlookTab.id },
+              files: ['outlook_content.js'],
+            });
+            await sleep(500);
+            outlookResult = await chrome.tabs.sendMessage(outlookTab.id, {
+              action: 'CLEAR_AND_IMPORT_ICS',
+              icsContent: lastICS,
+            });
+          }
         }
 
-        // Send clear + import to Outlook
-        const outlookTab = await getOrOpenOutlookTab();
-        await chrome.scripting.executeScript({
-          target: { tabId: outlookTab.id },
-          files: ['outlook_content.js'],
-        });
-        await sleep(500);
+        // Clear + reimport to iCloud
+        if (importToiCloud) {
+          icloudResult = await clearAndResyncToiCloud();
+        }
 
-        const result = await chrome.tabs.sendMessage(outlookTab.id, {
-          action: 'CLEAR_AND_IMPORT_ICS',
-          icsContent: lastICS,
-        });
-        try { sendResponse(result); } catch {}
+        const success = (!importToOutlook || outlookResult?.success) &&
+                        (!importToiCloud || icloudResult?.success);
+        try { sendResponse({ success, count: lastCount, outlookResult, icloudResult }); } catch {}
       } catch (err) {
         try { sendResponse({ success: false, error: err.message }); } catch {}
       }

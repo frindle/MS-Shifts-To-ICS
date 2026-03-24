@@ -157,10 +157,16 @@ clearReimportBtn.addEventListener('click', () => {
 
   chrome.runtime.sendMessage({ action: 'CLEAR_AND_REIMPORT' }, (response) => {
     clearReimportBtn.disabled = false;
-    clearReimportBtn.textContent = 'Clear & Re-import to Outlook';
+    clearReimportBtn.textContent = 'Clear & Re-import Selected';
 
     if (response && response.success) {
-      logEl.textContent = `Done — cleared old events, imported ${response.count ?? '?'} shifts.`;
+      let msg = `Done — cleared old events, imported ${response.count ?? '?'} shifts.`;
+      if (response.icloudResult) {
+        msg += response.icloudResult.success
+          ? ' iCloud cleared & re-synced.'
+          : ` iCloud error: ${response.icloudResult.error}`;
+      }
+      logEl.textContent = msg;
       logEl.className = 'ok';
     } else {
       logEl.textContent = `Error: ${response?.error || 'Unknown error'}`;
