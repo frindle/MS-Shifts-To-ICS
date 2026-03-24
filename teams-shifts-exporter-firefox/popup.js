@@ -114,7 +114,6 @@ targetDateEl.textContent = target.toLocaleDateString(undefined, {
 
 // Load last export status
 const includeOpenShiftsEl = document.getElementById('includeOpenShifts');
-const filterConflictingOpenShiftsEl = document.getElementById('filterConflictingOpenShifts');
 
 function setICloudCredsCollapsed(collapsed, email) {
   icloudCredsFieldsEl.style.display = collapsed ? 'none' : 'block';
@@ -124,7 +123,7 @@ function setICloudCredsCollapsed(collapsed, email) {
 }
 
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'filterConflictingOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudCredsSet'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudCredsSet'],
   (data) => {
     if (data.lastExport) {
       lastExportEl.textContent =
@@ -135,7 +134,6 @@ chrome.storage.local.get(
       importToOutlookEl.checked = true;
     }
     includeOpenShiftsEl.checked = data.includeOpenShifts !== false;
-    filterConflictingOpenShiftsEl.checked = !!data.filterConflictingOpenShifts;
 
     if (data.importToiCloud) {
       importToiCloudEl.checked = true;
@@ -199,10 +197,6 @@ saveICloudCredsBtn.addEventListener('click', () => {
 // Save open shifts toggles
 includeOpenShiftsEl.addEventListener('change', () => {
   chrome.runtime.sendMessage({ action: 'SET_INCLUDE_OPEN_SHIFTS', value: includeOpenShiftsEl.checked });
-});
-
-filterConflictingOpenShiftsEl.addEventListener('change', () => {
-  chrome.runtime.sendMessage({ action: 'SET_FILTER_CONFLICTING_OPEN_SHIFTS', value: filterConflictingOpenShiftsEl.checked });
 });
 
 // ─── Export Button ────────────────────────────────────────────────────────────

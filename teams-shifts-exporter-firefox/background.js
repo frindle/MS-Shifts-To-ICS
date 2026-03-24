@@ -8,10 +8,12 @@ const OUTLOOK_CALENDAR_URL = 'https://outlook.office.com/calendar/view/month';
 // ─── Alarm Setup ─────────────────────────────────────────────────────────────
 
 browser.runtime.onInstalled.addListener(() => {
+  clearProgress();
   scheduleDailyAlarm();
 });
 
 browser.runtime.onStartup.addListener(() => {
+  clearProgress();
   scheduleDailyAlarm();
 });
 
@@ -120,11 +122,11 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     setProgress('Processing shifts...', 70);
 
     // Filter open shifts based on user settings
-    const { includeOpenShifts, filterConflictingOpenShifts } = await browser.storage.local.get(['includeOpenShifts', 'filterConflictingOpenShifts']);
+    const { includeOpenShifts } = await browser.storage.local.get('includeOpenShifts');
     let events = response.events || [];
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
-    } else if (filterConflictingOpenShifts) {
+    } else {
       const scheduled = events.filter((e) => !e.isOpenShift);
       events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
     }
@@ -751,10 +753,6 @@ browser.runtime.onMessage.addListener((msg) => {
 
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     return browser.storage.local.set({ includeOpenShifts: msg.value });
-  }
-
-  if (msg.action === 'SET_FILTER_CONFLICTING_OPEN_SHIFTS') {
-    return browser.storage.local.set({ filterConflictingOpenShifts: msg.value });
   }
 
   if (msg.action === 'DOWNLOAD_ICS') {

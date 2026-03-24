@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Teams Shifts to ICS",
-  "version": "1.16",
+  "version": "1.17",
   "description": "Scrape Microsoft Teams Shifts and export to ICS calendar file",
   "permissions": ["storage", "alarms", "downloads", "tabs", "scripting", "windows", "notifications"],
   "host_permissions": [
@@ -36,8 +36,19 @@
       "run_at": "document_idle"
     }
   ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Teams Shifts to ICS"
+    "default_title": "Teams Shifts to ICS",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png"
+    }
   }
 }
