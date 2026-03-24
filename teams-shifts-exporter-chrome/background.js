@@ -44,28 +44,17 @@ async function runExport({ auto = false } = {}) {
     scrapeWinId = win.id;
     const tab = win.tabs[0];
 
-    // Wait for Teams to load
-    await sleep(4000);
-
-    // Step 1: inject into top frame and navigate to Shifts
+    // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
+    await waitForTeamsReady(tab.id);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
-    await sleep(300);
     await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 });
-    await sleep(3000); // wait for Shifts iframe to load
 
-    // Step 2: find the Shifts iframe frame ID
-    const frameResults = await chrome.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true },
-      func: () => window.location.href,
-    });
-    const shiftsFrame = frameResults.find(
-      (r) => r.result && r.result.includes('flw.teams.cloud.microsoft')
-    );
-    if (!shiftsFrame) throw new Error('Shifts iframe not found');
+    // Step 2: wait for the Shifts iframe to appear and get its frameId
+    const shiftsFrame = await waitForShiftsFrame(tab.id);
 
-    // Step 3: inject content script into the iframe
+    // Step 3: inject content script into the iframe and wait for Shifts UI to render
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [shiftsFrame.frameId] }, files: ['content.js'] });
-    await sleep(500);
+    await waitForShiftsReady(tab.id, shiftsFrame.frameId);
 
     // Auto-detect user name from Teams top frame ("Account manager for ...")
     let { userName } = await chrome.storage.local.get('userName');
@@ -119,10 +108,17 @@ async function runExport({ auto = false } = {}) {
       outlookResult = await importToOutlookWeb(mergedICS, auto);
     }
 
+    // Sync to iCloud Calendar via CalDAV if the setting is enabled
+    const { importToiCloud } = await chrome.storage.local.get('importToiCloud');
+    let icloudResult = null;
+    if (importToiCloud) {
+      icloudResult = await syncToiCloud(mergedEvents);
+    }
+
     // Update last export time and store ICS for clear & re-import
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS });
 
-    return { success: true, count: mergedEvents.length, outlookResult };
+    return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     return { success: false, error: err.message };
@@ -279,6 +275,332 @@ async function downloadICS(icsContent, filename) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ─── Load Polling Helpers ─────────────────────────────────────────────────────
+
+// Poll until Teams sidebar navigation elements are available in the top frame
+async function waitForTeamsReady(tabId, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const [r] = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: () => !!(
+          document.querySelector('[aria-label*="Shifts" i][role="button"]') ||
+          document.querySelector('[aria-label*="more" i][role="button"]') ||
+          document.querySelector('[aria-label*="Apps" i][role="button"]') ||
+          document.querySelector('button[aria-label^="Account manager for"]')
+        ),
+      });
+      if (r?.result) return;
+    } catch {}
+    await sleep(500);
+  }
+  throw new Error('Timed out waiting for Teams to load');
+}
+
+// Poll until the Shifts iframe (flw.teams.cloud.microsoft) appears, return its frame record
+async function waitForShiftsFrame(tabId, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => window.location.href,
+      });
+      const frame = frames.find((f) => f.result && f.result.includes('flw.teams.cloud.microsoft'));
+      if (frame) return frame;
+    } catch {}
+    await sleep(500);
+  }
+  throw new Error('Timed out waiting for Shifts iframe');
+}
+
+// Poll until the Shifts week-navigation UI is visible inside the iframe
+async function waitForShiftsReady(tabId, frameId, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const [r] = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [frameId] },
+        func: () => !!(
+          document.querySelector('button[aria-label="Go to next week"]') ||
+          document.querySelector('button[aria-label*="Pick a date"]') ||
+          document.querySelector('button[aria-label*="Your shifts" i]') ||
+          document.querySelector('[data-tid="your-shifts-tab"]') ||
+          document.querySelector('[data-tid="yourShifts-tab"]')
+        ),
+      });
+      if (r?.result) return;
+    } catch {}
+    await sleep(500);
+  }
+  throw new Error('Timed out waiting for Shifts UI to load');
+}
+
+// ─── iCloud CalDAV Sync ───────────────────────────────────────────────────────
+
+// Shared ICS date formatter used by both generateICS and the CalDAV client
+function toICSDateStr(ms) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date(ms);
+  return (
+    d.getFullYear() +
+    pad(d.getMonth() + 1) +
+    pad(d.getDate()) +
+    'T' +
+    pad(d.getHours()) +
+    pad(d.getMinutes()) +
+    '00'
+  );
+}
+
+// Build a single-event VCALENDAR block for CalDAV PUT
+function buildSingleEventICS(event, uid) {
+  const summaryText = event.isOpenShift ? `OPEN: ${event.summary}` : event.summary;
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Teams Shifts Export//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'BEGIN:VEVENT',
+    `UID:${uid}@teams-shifts-export`,
+    `DTSTAMP:${toICSDateStr(Date.now())}`,
+    `DTSTART:${toICSDateStr(event.startMs)}`,
+    `DTEND:${toICSDateStr(event.endMs)}`,
+    `SUMMARY:${summaryText.replace(/,/g, '\\,').replace(/\n/g, '\\n')}`,
+  ];
+  if (event.notes) {
+    lines.push(`DESCRIPTION:${event.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
+  }
+  if (event.isOpenShift) lines.push('CATEGORIES:Open Shift');
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+class iCloudCalDAVClient {
+  constructor(email, appPassword) {
+    this.authHeader = 'Basic ' + btoa(`${email}:${appPassword}`);
+    this.calendarHomeUrl = null;
+  }
+
+  // fetch wrapper that manually follows redirects to preserve HTTP method
+  async request(url, method, body = null, extraHeaders = {}, timeoutMs = 20000) {
+    const headers = {
+      'Authorization': this.authHeader,
+      'Content-Type': 'application/xml; charset=utf-8',
+      ...extraHeaders,
+    };
+
+    const fetchWithTimeout = (fetchUrl) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      return fetch(fetchUrl, { method, headers, body, redirect: 'manual', signal: controller.signal })
+        .finally(() => clearTimeout(timer));
+    };
+
+    let response = await fetchWithTimeout(url);
+
+    let hops = 0;
+    while (hops < 5) {
+      const status = response.status;
+      if (status === 301 || status === 302 || status === 307 || status === 308) {
+        const location = response.headers.get('Location');
+        if (!location) break;
+        response = await fetchWithTimeout(location);
+        hops++;
+      } else {
+        break;
+      }
+    }
+
+    return response;
+  }
+
+  // Discover the calendar-home-set URL for this account
+  async connect() {
+    const principalBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:current-user-principal/></D:prop></D:propfind>`;
+    let res = await this.request('https://caldav.icloud.com/', 'PROPFIND', principalBody, { 'Depth': '0' });
+    if (!res.ok) throw new Error(`iCloud principal discovery failed (HTTP ${res.status}). Check your Apple ID and app-specific password.`);
+
+    const principalXml = await res.text();
+    const principalPath = this._hrefInsideTag(principalXml, 'current-user-principal');
+    if (!principalPath) throw new Error('iCloud did not return a principal URL. Ensure you are using an app-specific password.');
+
+    const principalUrl = principalPath.startsWith('http')
+      ? principalPath
+      : `https://caldav.icloud.com${principalPath}`;
+
+    const homeBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><C:calendar-home-set/></D:prop></D:propfind>`;
+    res = await this.request(principalUrl, 'PROPFIND', homeBody, { 'Depth': '0' });
+    if (!res.ok) throw new Error(`iCloud calendar-home-set discovery failed (HTTP ${res.status})`);
+
+    const homeXml = await res.text();
+    const homePath = this._hrefInsideTag(homeXml, 'calendar-home-set');
+    if (!homePath) throw new Error('iCloud did not return a calendar-home-set URL');
+
+    this.calendarHomeUrl = homePath.startsWith('http')
+      ? homePath
+      : `https://caldav.icloud.com${homePath}`;
+    if (!this.calendarHomeUrl.endsWith('/')) this.calendarHomeUrl += '/';
+  }
+
+  // Find the "Work Shifts" calendar URL, or create it if missing.
+  // Matches by display name only — skipping resource-type checks that are
+  // fragile across iCloud's varying namespace prefixes.
+  async findOrCreateCalendar(displayName) {
+    const listBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>`;
+    const res = await this.request(this.calendarHomeUrl, 'PROPFIND', listBody, { 'Depth': '1' });
+    if (!res.ok) throw new Error(`iCloud calendar listing failed (HTTP ${res.status})`);
+
+    const xml = await res.text();
+    console.info('[iCloud] Calendar list XML:', xml);
+
+    for (const block of this._responseBlocks(xml)) {
+      const name = this._tagText(block, 'displayname');
+      if (name && name.trim() === displayName) {
+        const href = this._tagText(block, 'href');
+        if (href) return href.startsWith('http') ? href : `https://caldav.icloud.com${href}`;
+      }
+    }
+
+    // Calendar not found — create it
+    const uid = crypto.randomUUID();
+    const newCalUrl = `${this.calendarHomeUrl}${uid}/`;
+    const mkBody = `<?xml version="1.0" encoding="utf-8"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop><D:displayname>${displayName}</D:displayname></D:prop></D:set></C:mkcalendar>`;
+    const mkRes = await this.request(newCalUrl, 'MKCALENDAR', mkBody);
+    if (mkRes.status !== 201) throw new Error(`iCloud MKCALENDAR failed (HTTP ${mkRes.status})`);
+    console.info('[iCloud] Created calendar:', displayName, newCalUrl);
+    return newCalUrl;
+  }
+
+  // REPORT the calendar to get a map of { uid -> { url, etag } } for our events
+  async getOurEvents(calendarUrl) {
+    const reportBody = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/></D:prop><C:filter><C:comp-filter name="VCALENDAR"/></C:filter></C:calendar-query>`;
+    const res = await this.request(calendarUrl, 'REPORT', reportBody, { 'Depth': '1' });
+    if (res.status !== 207 && !res.ok) throw new Error(`iCloud REPORT failed (HTTP ${res.status})`);
+
+    const xml = await res.text();
+    const result = new Map(); // uid -> { url, etag }
+    for (const block of this._responseBlocks(xml)) {
+      const href = this._tagText(block, 'href');
+      if (!href || !href.endsWith('.ics')) continue;
+      const filename = href.split('/').pop().replace('.ics', '');
+      if (filename.startsWith('teams-shift-')) {
+        const rawEtag = this._tagText(block, 'getetag') || '';
+        result.set(filename, {
+          url: href.startsWith('http') ? href : `https://caldav.icloud.com${href}`,
+          etag: rawEtag.replace(/^"|"$/g, ''), // strip surrounding quotes
+        });
+      }
+    }
+    return result;
+  }
+
+  // PUT a single event. Tries create-only first (If-None-Match: *); if the event
+  // already exists (412), retries as an unconditional update. This avoids needing
+  // to track ETags while still satisfying iCloud's precondition requirements.
+  async putEvent(calendarUrl, uid, icsContent) {
+    const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
+    const url = `${base}${uid}.ics`;
+    const headers = { 'Content-Type': 'text/calendar; charset=utf-8' };
+
+    let res = await this.request(url, 'PUT', icsContent, { ...headers, 'If-None-Match': '*' });
+    if (res.status === 412) {
+      // Event already exists — update it unconditionally
+      res = await this.request(url, 'PUT', icsContent, headers);
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`iCloud PUT failed (HTTP ${res.status}) for ${uid}`);
+    }
+  }
+
+  async deleteEvent(eventUrl) {
+    const res = await this.request(eventUrl, 'DELETE');
+    if (res.status !== 204 && res.status !== 200) {
+      console.warn('[iCloud] DELETE returned', res.status, 'for', eventUrl);
+    }
+  }
+
+  // Upsert all events, then delete stale future events that we own
+  async syncEvents(calendarUrl, events) {
+    const currentUids = new Set();
+    const now = Date.now();
+
+    for (const event of events) {
+      const uid = `teams-shift-${event.startMs}`;
+      currentUids.add(uid);
+      await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+    }
+
+    // Only REPORT after all upserts to find candidates for deletion
+    const existingOurEvents = await this.getOurEvents(calendarUrl);
+    for (const [uid, { url }] of existingOurEvents) {
+      if (currentUids.has(uid)) continue;
+      const startMs = parseInt(uid.replace('teams-shift-', ''), 10);
+      if (!isNaN(startMs) && startMs > now) {
+        await this.deleteEvent(url);
+        console.info('[iCloud] Deleted stale event:', uid);
+      }
+    }
+  }
+
+  // ── Regex-based XML helpers (DOMParser unavailable in MV3 service workers) ──
+
+  // Namespace prefix is optional — iCloud may omit it in some responses
+  _responseBlocks(xml) {
+    const blocks = [];
+    const re = /<(?:[a-zA-Z]+:)?response[\s>][\s\S]*?<\/(?:[a-zA-Z]+:)?response>/gi;
+    let m;
+    while ((m = re.exec(xml)) !== null) blocks.push(m[0]);
+    return blocks;
+  }
+
+  _tagText(xml, localName) {
+    const re = new RegExp(`<[a-zA-Z]*:?${localName}[^>]*>([^<]*)<`, 'i');
+    const m = re.exec(xml);
+    return m ? m[1].trim() : null;
+  }
+
+  _hasTag(xml, localName) {
+    return new RegExp(`<[a-zA-Z]*:?${localName}[\\s/>]`, 'i').test(xml);
+  }
+
+  _hrefInsideTag(xml, parentLocalName) {
+    const re = new RegExp(`<[a-zA-Z]*:?${parentLocalName}[^>]*>([\\s\\S]*?)<\\/[a-zA-Z]*:?${parentLocalName}>`, 'i');
+    const m = re.exec(xml);
+    if (!m) return null;
+    return this._tagText(m[1], 'href');
+  }
+}
+
+async function syncToiCloud(events) {
+  const OVERALL_TIMEOUT_MS = 60000;
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('iCloud sync timed out after 60s')), OVERALL_TIMEOUT_MS)
+  );
+  try {
+    const { icloudEmail, icloudAppPassword } = await chrome.storage.local.get(['icloudEmail', 'icloudAppPassword']);
+    if (!icloudEmail || !icloudAppPassword) {
+      return { success: false, error: 'iCloud credentials not configured — open the popup to save them.' };
+    }
+    const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
+    await Promise.race([
+      (async () => {
+        await client.connect();
+        const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
+        await client.syncEvents(calendarUrl, events);
+      })(),
+      timeoutPromise,
+    ]);
+    console.info('[ShiftsExport] iCloud sync complete —', events.length, 'events');
+    return { success: true };
+  } catch (err) {
+    console.error('[ShiftsExport] iCloud CalDAV error:', err);
+    return { success: false, error: err.message };
+  }
 }
 
 // ─── Message Handler (from popup) ────────────────────────────────────────────

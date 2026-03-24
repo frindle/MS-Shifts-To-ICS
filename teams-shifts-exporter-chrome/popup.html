@@ -149,6 +149,77 @@
       cursor: pointer;
     }
 
+    .sync-group {
+      background: #01466e;
+      border: 1px solid #0277a8;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+    .sync-group-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #7bacc8;
+      padding: 7px 12px 5px;
+    }
+    .sync-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 12px;
+      font-size: 12px;
+      color: #e8edf2;
+      cursor: pointer;
+      border-top: 1px solid #0277a8;
+    }
+    .sync-row:first-of-type { border-top: none; }
+    .sync-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #F48120;
+      cursor: pointer;
+    }
+    .sync-row-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .icloud-chevron {
+      font-size: 9px;
+      color: #7bacc8;
+      cursor: pointer;
+      padding: 2px 3px;
+      border-radius: 3px;
+      transition: transform 0.15s, background 0.1s;
+      display: none;
+    }
+    .icloud-chevron:hover { background: #0277a8; }
+    .icloud-chevron.open { transform: rotate(180deg); }
+
+    #icloudCredsSection {
+      display: none;
+      border-top: 1px solid #0277a8;
+      background: #012040;
+      padding: 10px 12px 12px;
+    }
+    #icloudCredsSection .field {
+      margin-bottom: 10px;
+    }
+    #icloudCredsSummary {
+      font-size: 10px;
+      color: #5a8aab;
+      padding-bottom: 4px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #7bacc8;
+      margin-bottom: 8px;
+    }
+
     #log {
       margin-top: 10px;
       font-size: 11px;
@@ -174,10 +245,38 @@
       <div class="status-value none" id="lastExport">Never</div>
     </div>
 
-    <label class="toggle-row">
-      <span>Also import to Outlook calendar</span>
-      <input type="checkbox" id="importToOutlook" />
-    </label>
+    <div class="sync-group">
+      <div class="sync-group-label">Sync to</div>
+      <label class="sync-row">
+        <span>Outlook Calendar</span>
+        <input type="checkbox" id="importToOutlook" />
+      </label>
+      <div class="sync-row">
+        <label for="importToiCloud" style="flex:1; cursor:pointer;">iCloud Calendar</label>
+        <div class="sync-row-right">
+          <span class="icloud-chevron" id="icloudCredsChevron">&#9660;</span>
+          <input type="checkbox" id="importToiCloud" />
+        </div>
+      </div>
+      <div id="icloudCredsSection">
+        <div id="icloudCredsSummary"></div>
+        <div id="icloudCredsFields">
+          <div class="field">
+            <label>Apple ID (email)</label>
+            <input type="email" id="icloudEmail" placeholder="you@icloud.com" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label>App-Specific Password</label>
+            <input type="password" id="icloudAppPassword" placeholder="xxxx-xxxx-xxxx-xxxx" autocomplete="off" />
+            <div class="field-hint">
+              Generate at <strong>appleid.apple.com</strong> &rarr; Sign-In &amp; Security &rarr; App-Specific Passwords
+            </div>
+          </div>
+          <button id="saveICloudCredsBtn" style="background:#1a6a9a; color:#e8edf2;">Save Credentials</button>
+          <div id="icloudCredsStatus" style="font-size:10px; margin-top:6px; color:#7bacc8;"></div>
+        </div>
+      </div>
+    </div>
 
     <label class="toggle-row">
       <span>Include open shifts</span>

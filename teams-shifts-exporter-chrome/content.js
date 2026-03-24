@@ -165,6 +165,32 @@
     });
   }
 
+  // Wait until the number of shift cards on the page stops changing.
+  // This is more reliable than a fixed delay — some weeks render faster,
+  // some slower, and weeks with no shifts would still wait unnecessarily.
+  async function waitForShiftsStable(maxWaitMs = 6000) {
+    const pollMs = 300;
+    const stableThresholdMs = 600; // card count must be unchanged for this long
+    let prevCount = -1;
+    let stableFor = 0;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+      const count =
+        document.querySelectorAll('div[aria-label^="Shift."], div[aria-label^="Open shift"]').length;
+
+      if (count === prevCount) {
+        stableFor += pollMs;
+        if (stableFor >= stableThresholdMs) return;
+      } else {
+        stableFor = 0;
+        prevCount = count;
+      }
+      await sleep(pollMs);
+    }
+    // Timed out — proceed anyway with whatever cards are present
+  }
+
   // ─── DOM Scraping ─────────────────────────────────────────────────────────
 
   // Find the "next week" navigation button
@@ -452,8 +478,8 @@
           }
         }
 
-        // Wait for shift cards to render after the header updates
-        await sleep(750);
+        // Wait for shift cards to finish rendering before scraping
+        await waitForShiftsStable();
       }
 
       // Build ICS events
