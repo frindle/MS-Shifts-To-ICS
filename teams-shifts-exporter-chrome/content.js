@@ -170,7 +170,11 @@
   // some slower, and weeks with no shifts would still wait unnecessarily.
   async function waitForShiftsStable(maxWaitMs = 6000) {
     const pollMs = 300;
-    const stableThresholdMs = 600; // card count must be unchanged for this long
+    const stableThresholdMs = 1200; // card count must be unchanged for this long
+    // Brief initial pause so Teams has time to begin fetching data for the new
+    // week before we start checking card count. Without this, a 0-card state
+    // during the network request looks like a stable empty week.
+    await sleep(500);
     let prevCount = -1;
     let stableFor = 0;
     const deadline = Date.now() + maxWaitMs;
