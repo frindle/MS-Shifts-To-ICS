@@ -127,7 +127,6 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     const { importToiCloud } = await chrome.storage.local.get('importToiCloud');
     let icloudResult = null;
     if (importToiCloud && !skipICloud) {
-      setProgress('Syncing to iCloud...', 82);
       icloudResult = await syncToiCloud(mergedEvents);
     }
 
@@ -567,12 +566,19 @@ class iCloudCalDAVClient {
   async syncEvents(calendarUrl, events, onProgress = null) {
     const currentUids = new Set();
     const now = Date.now();
-    const total = events.length;
     let uploaded = 0;
 
     // Load the set of open shift UIDs we've already pushed to iCloud
     const { syncedOpenShiftUids: storedUids = [] } = await chrome.storage.local.get('syncedOpenShiftUids');
     const syncedOpenShiftUids = new Set(storedUids);
+
+    // Pre-calculate how many events will actually be uploaded so the fraction
+    // fills 0→1 over real uploads, not skipped open shifts.
+    const total = events.filter((e) => {
+      if (!e.isOpenShift) return true;
+      const uid = `teams-shift-${e.startMs}-${e.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
+      return !syncedOpenShiftUids.has(uid);
+    }).length || 1;
 
     for (const event of events) {
       const uid = `teams-shift-${event.startMs}-${event.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
@@ -652,9 +658,11 @@ async function clearAndResyncToiCloud() {
       return { success: false, error: 'No shift data available — run a sync first.' };
     }
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
+    setProgress('Connecting to iCloud…', 68);
     await client.connect();
+    setProgress('Loading Work Shifts calendar…', 71);
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-    setProgress('Clearing iCloud calendar…', 72);
+    setProgress('Clearing iCloud calendar…', 74);
     await client.clearAllOurEvents(calendarUrl);
     // Reset open shift tracking BEFORE re-syncing so all open shifts are re-added
     await chrome.storage.local.set({ syncedOpenShiftUids: [] });
@@ -683,10 +691,12 @@ async function syncToiCloud(events) {
       return { success: false, error: 'iCloud credentials not configured — open the popup to save them.' };
     }
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
+    setProgress('Connecting to iCloud…', 75);
     await client.connect();
+    setProgress('Loading Work Shifts calendar…', 79);
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
     await client.syncEvents(calendarUrl, events, (step, fraction) => {
-      setProgress(step, 82 + Math.round(fraction * 16)); // 82–98%
+      setProgress(step, 83 + Math.round(fraction * 14)); // 83–97%
     });
     console.info('[ShiftsExport] iCloud sync complete —', events.length, 'events');
     return { success: true };
