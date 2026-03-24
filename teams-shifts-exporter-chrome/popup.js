@@ -55,6 +55,7 @@ const icloudCredsStatusEl = document.getElementById('icloudCredsStatus');
 const progressSectionEl = document.getElementById('progressSection');
 const progressLabelEl = document.getElementById('progressLabel');
 const progressFillEl = document.getElementById('progressFill');
+const cancelSyncBtn = document.getElementById('cancelSyncBtn');
 
 let progressInterval = null;
 
@@ -67,11 +68,19 @@ function updateProgressUI(step, percent) {
 function hideProgress() {
   progressSectionEl.style.display = 'none';
   progressFillEl.style.width = '0%';
+  cancelSyncBtn.disabled = false;
+  cancelSyncBtn.textContent = 'Cancel';
   if (progressInterval) {
     clearInterval(progressInterval);
     progressInterval = null;
   }
 }
+
+cancelSyncBtn.addEventListener('click', () => {
+  cancelSyncBtn.disabled = true;
+  cancelSyncBtn.textContent = 'Cancelling…';
+  chrome.runtime.sendMessage({ action: 'CANCEL_SYNC' });
+});
 
 function startProgressPolling() {
   if (progressInterval) return;

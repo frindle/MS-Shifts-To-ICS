@@ -254,6 +254,20 @@
       width: 0%;
       transition: width 0.3s ease;
     }
+    #cancelSyncBtn {
+      margin-top: 7px;
+      background: transparent;
+      color: #5a8aab;
+      border: 1px solid #0277a8;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: normal;
+      padding: 4px 10px;
+      width: auto;
+      cursor: pointer;
+    }
+    #cancelSyncBtn:hover { color: #e8edf2; border-color: #5a8aab; }
+    #cancelSyncBtn:disabled { opacity: 0.4; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -277,6 +291,7 @@
       <div class="progress-bar-track">
         <div class="progress-bar-fill" id="progressFill"></div>
       </div>
+      <button id="cancelSyncBtn">Cancel</button>
     </div>
 
     <div class="sync-group">

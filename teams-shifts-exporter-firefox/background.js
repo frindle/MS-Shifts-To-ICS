@@ -41,7 +41,12 @@ function setProgress(step, percent) {
 }
 
 function clearProgress() {
-  browser.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0 }).catch(() => {});
+  browser.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0, syncCancelled: false }).catch(() => {});
+}
+
+async function checkCancelled() {
+  const data = await browser.storage.local.get('syncCancelled');
+  if (data.syncCancelled) throw new Error('Sync cancelled');
 }
 
 // ─── Export Logic ─────────────────────────────────────────────────────────────
@@ -69,11 +74,13 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
 
     // Step 2: wait for the Shifts iframe to appear and get its frameId
     const shiftsFrame = await waitForShiftsFrame(tab.id);
+    await checkCancelled();
     setProgress('Loading Shifts...', 14);
 
     // Step 3: inject content script into the iframe and wait for Shifts UI to render
     await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: shiftsFrame.frameId });
     await waitForShiftsReady(tab.id, shiftsFrame.frameId);
+    await checkCancelled();
     setProgress('Starting scrape...', 18);
 
     // Auto-detect user name from Teams top frame ("Account manager for ...")
@@ -109,6 +116,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (!response || !response.success) {
       throw new Error(response?.error || 'Scrape failed');
     }
+    await checkCancelled();
     setProgress('Processing shifts...', 70);
 
     // Filter out open shifts if the user disabled them
@@ -580,12 +588,14 @@ class iCloudCalDAVClient {
       if (event.isOpenShift) {
         // Only add open shifts we haven't pushed before
         if (!syncedOpenShiftUids.has(uid)) {
+          await checkCancelled();
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
           syncedOpenShiftUids.add(uid);
         }
       } else {
         // Scheduled shifts: always upsert
+        await checkCancelled();
         if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
         await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
       }
@@ -695,6 +705,11 @@ browser.runtime.onMessage.addListener((msg) => {
   // Firefox MV2: return a Promise from the listener for async responses
   if (msg.action === 'SYNC_PROGRESS') {
     browser.storage.local.set({ syncRunning: true, syncStep: msg.step, syncPercent: msg.percent }).catch(() => {});
+    return false;
+  }
+
+  if (msg.action === 'CANCEL_SYNC') {
+    browser.storage.local.set({ syncCancelled: true }).catch(() => {});
     return false;
   }
 

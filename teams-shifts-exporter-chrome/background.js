@@ -40,7 +40,12 @@ function setProgress(step, percent) {
 }
 
 function clearProgress() {
-  chrome.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0 }).catch(() => {});
+  chrome.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0, syncCancelled: false }).catch(() => {});
+}
+
+async function checkCancelled() {
+  const { syncCancelled } = await chrome.storage.local.get('syncCancelled');
+  if (syncCancelled) throw new Error('Sync cancelled');
 }
 
 // ─── Export Logic ─────────────────────────────────────────────────────────────
@@ -57,6 +62,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
 
     // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
     await waitForTeamsReady(tab.id);
+    await checkCancelled();
     setProgress('Navigating to Shifts...', 8);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
     await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 });
@@ -68,6 +74,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     // Step 3: inject content script into the iframe and wait for Shifts UI to render
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [shiftsFrame.frameId] }, files: ['content.js'] });
     await waitForShiftsReady(tab.id, shiftsFrame.frameId);
+    await checkCancelled();
     setProgress('Starting scrape...', 18);
 
     // Auto-detect user name from Teams top frame ("Account manager for ...")
@@ -103,6 +110,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (!response || !response.success) {
       throw new Error(response?.error || 'Scrape failed');
     }
+    await checkCancelled();
     setProgress('Processing shifts...', 70);
 
     // Filter out open shifts if the user disabled them
@@ -587,12 +595,14 @@ class iCloudCalDAVClient {
       if (event.isOpenShift) {
         // Only add open shifts we haven't pushed before
         if (!syncedOpenShiftUids.has(uid)) {
+          await checkCancelled();
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
           syncedOpenShiftUids.add(uid);
         }
       } else {
         // Scheduled shifts: always upsert
+        await checkCancelled();
         if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
         await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
       }
@@ -711,6 +721,11 @@ async function syncToiCloud(events) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'SYNC_PROGRESS') {
     chrome.storage.local.set({ syncRunning: true, syncStep: msg.step, syncPercent: msg.percent }).catch(() => {});
+    return false;
+  }
+
+  if (msg.action === 'CANCEL_SYNC') {
+    chrome.storage.local.set({ syncCancelled: true }).catch(() => {});
     return false;
   }
 

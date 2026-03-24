@@ -512,6 +512,10 @@
       for (let week = 0; week < totalWeeks; week++) {
         overlay.update(`Scraping week ${week + 1} of ${totalWeeks}...`);
 
+        // Bail out if the user cancelled
+        const { syncCancelled } = await browser.storage.local.get('syncCancelled');
+        if (syncCancelled) throw new Error('Sync cancelled');
+
         // Scroll the grid so virtualised rows outside the viewport get rendered
         await scrollShiftsIntoView();
 

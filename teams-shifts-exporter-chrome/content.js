@@ -490,6 +490,10 @@
           percent: 18 + Math.round((week / totalWeeks) * 50),
         }).catch(() => {});
 
+        // Bail out if the user cancelled
+        const { syncCancelled } = await chrome.storage.local.get('syncCancelled');
+        if (syncCancelled) throw new Error('Sync cancelled');
+
         // Scroll the grid so virtualised rows outside the viewport get rendered
         await scrollShiftsIntoView();
 
