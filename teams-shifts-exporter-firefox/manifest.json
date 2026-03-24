@@ -20,7 +20,8 @@
     "https://flw.teams.cloud.microsoft/*",
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
-    "https://graph.microsoft.com/*"
+    "https://graph.microsoft.com/*",
+    "https://*.icloud.com/*"
   ],
   "background": {
     "scripts": ["background.js"],

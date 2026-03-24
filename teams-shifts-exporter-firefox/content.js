@@ -197,6 +197,61 @@
     });
   }
 
+  // Wait until the number of shift cards on the page stops changing.
+  // This is more reliable than a fixed delay — some weeks render faster,
+  // some slower, and weeks with no shifts would still wait unnecessarily.
+  async function waitForShiftsStable(maxWaitMs = 6000) {
+    const pollMs = 300;
+    const stableThresholdMs = 1200; // card count must be unchanged for this long
+    // Brief initial pause so Teams has time to begin fetching data for the new
+    // week before we start checking card count. Without this, a 0-card state
+    // during the network request looks like a stable empty week.
+    await sleep(500);
+    let prevCount = -1;
+    let stableFor = 0;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+      const count =
+        document.querySelectorAll('div[aria-label^="Shift."], div[aria-label^="Open shift"]').length;
+
+      if (count === prevCount) {
+        stableFor += pollMs;
+        if (stableFor >= stableThresholdMs) return;
+      } else {
+        stableFor = 0;
+        prevCount = count;
+      }
+      await sleep(pollMs);
+    }
+    // Timed out — proceed anyway with whatever cards are present
+  }
+
+  // Scroll the shifts grid container to the bottom and back to the top so that
+  // virtualised rows outside the viewport get rendered before we scrape.
+  async function scrollShiftsIntoView() {
+    const container =
+      document.querySelector('[data-tid="shifts-grid"]') ||
+      document.querySelector('[class*="scheduleGrid"]') ||
+      document.querySelector('[role="grid"]') ||
+      document.querySelector('[class*="shiftsBody"]') ||
+      // Last resort: find the deepest scrollable element inside the shifts iframe
+      Array.from(document.querySelectorAll('*')).find(
+        (el) => el.scrollHeight > el.clientHeight + 10 && getComputedStyle(el).overflowY !== 'visible'
+      );
+
+    if (!container) return;
+
+    const original = container.scrollTop;
+    container.scrollTop = container.scrollHeight;
+    await sleep(200);
+    container.scrollTop = 0;
+    await sleep(200);
+    // Restore original position so the UI looks unchanged
+    container.scrollTop = original;
+    await sleep(100);
+  }
+
   // ─── DOM Scraping ─────────────────────────────────────────────────────────
 
   // Find the "next week" navigation button
@@ -457,6 +512,9 @@
       for (let week = 0; week < totalWeeks; week++) {
         overlay.update(`Scraping week ${week + 1} of ${totalWeeks}...`);
 
+        // Scroll the grid so virtualised rows outside the viewport get rendered
+        await scrollShiftsIntoView();
+
         const weekShifts = scrapeCurrentWeek(userName);
         allRawShifts.push(...weekShifts);
 
@@ -481,8 +539,8 @@
           }
         }
 
-        // Wait for shift cards to render after the header updates
-        await sleep(750);
+        // Wait for shift cards to finish rendering before scraping
+        await waitForShiftsStable();
       }
 
       // Build ICS events
