@@ -564,9 +564,11 @@ class iCloudCalDAVClient {
   // - Open shifts: only add if never synced before; if user deleted one from
   //   iCloud, leave it deleted (don't re-add on subsequent syncs)
   // - Stale future events no longer in Teams: delete from iCloud
-  async syncEvents(calendarUrl, events) {
+  async syncEvents(calendarUrl, events, onProgress = null) {
     const currentUids = new Set();
     const now = Date.now();
+    const total = events.length;
+    let uploaded = 0;
 
     // Load the set of open shift UIDs we've already pushed to iCloud
     const { syncedOpenShiftUids: storedUids = [] } = await chrome.storage.local.get('syncedOpenShiftUids');
@@ -579,16 +581,19 @@ class iCloudCalDAVClient {
       if (event.isOpenShift) {
         // Only add open shifts we haven't pushed before
         if (!syncedOpenShiftUids.has(uid)) {
+          if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
           syncedOpenShiftUids.add(uid);
         }
       } else {
         // Scheduled shifts: always upsert
+        if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
         await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
       }
     }
 
     // Delete stale future events that are no longer in Teams
+    if (onProgress) onProgress('Removing old shifts…', 0.97);
     const existingOurEvents = await this.getOurEvents(calendarUrl);
     for (const [uid, { url }] of existingOurEvents) {
       if (currentUids.has(uid)) continue;
@@ -649,10 +654,13 @@ async function clearAndResyncToiCloud() {
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
     await client.connect();
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
+    setProgress('Clearing iCloud calendar…', 72);
     await client.clearAllOurEvents(calendarUrl);
     // Reset open shift tracking BEFORE re-syncing so all open shifts are re-added
     await chrome.storage.local.set({ syncedOpenShiftUids: [] });
-    await client.syncEvents(calendarUrl, lastEvents);
+    await client.syncEvents(calendarUrl, lastEvents, (step, fraction) => {
+      setProgress(step, 80 + Math.round(fraction * 18)); // 80–98%
+    });
     console.info('[ShiftsExport] iCloud clear & resync complete —', lastEvents.length, 'events');
     return { success: true };
   } catch (err) {
@@ -677,7 +685,9 @@ async function syncToiCloud(events) {
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
     await client.connect();
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-    await client.syncEvents(calendarUrl, events);
+    await client.syncEvents(calendarUrl, events, (step, fraction) => {
+      setProgress(step, 82 + Math.round(fraction * 16)); // 82–98%
+    });
     console.info('[ShiftsExport] iCloud sync complete —', events.length, 'events');
     return { success: true };
   } catch (err) {
