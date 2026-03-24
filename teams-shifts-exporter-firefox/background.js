@@ -34,10 +34,21 @@ browser.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Progress Helpers ─────────────────────────────────────────────────────────
+
+function setProgress(step, percent) {
+  browser.storage.local.set({ syncRunning: true, syncStep: step, syncPercent: percent }).catch(() => {});
+}
+
+function clearProgress() {
+  browser.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0 }).catch(() => {});
+}
+
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
   try {
+    setProgress('Opening Teams...', 2);
     const tab = await getOrOpenTeamsShiftsTab(auto);
     if (!tab) {
       console.warn('[ShiftsExport] No Teams Shifts tab available.');
@@ -58,10 +69,12 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
 
     // Step 2: wait for the Shifts iframe to appear and get its frameId
     const shiftsFrame = await waitForShiftsFrame(tab.id);
+    setProgress('Loading Shifts...', 14);
 
     // Step 3: inject content script into the iframe and wait for Shifts UI to render
     await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: shiftsFrame.frameId });
     await waitForShiftsReady(tab.id, shiftsFrame.frameId);
+    setProgress('Starting scrape...', 18);
 
     // Auto-detect user name from Teams top frame ("Account manager for ...")
     let { userName } = await browser.storage.local.get('userName');
@@ -96,6 +109,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (!response || !response.success) {
       throw new Error(response?.error || 'Scrape failed');
     }
+    setProgress('Processing shifts...', 70);
 
     // Filter out open shifts if the user disabled them
     const { includeOpenShifts } = await browser.storage.local.get('includeOpenShifts');
@@ -123,15 +137,18 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     const { importToiCloud } = await browser.storage.local.get('importToiCloud');
     let icloudResult = null;
     if (importToiCloud && !skipICloud) {
+      setProgress('Syncing to iCloud...', 82);
       icloudResult = await syncToiCloud(mergedEvents);
     }
 
     // Update last export time and store ICS for clear & re-import
     await browser.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
 
+    clearProgress();
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
+    clearProgress();
     return { success: false, error: err.message };
   }
 }
@@ -656,6 +673,11 @@ async function syncToiCloud(events) {
 
 browser.runtime.onMessage.addListener((msg) => {
   // Firefox MV2: return a Promise from the listener for async responses
+  if (msg.action === 'SYNC_PROGRESS') {
+    browser.storage.local.set({ syncRunning: true, syncStep: msg.step, syncPercent: msg.percent }).catch(() => {});
+    return false;
+  }
+
   if (msg.action === 'EXPORT_NOW') {
     return runExport({ auto: false });
   }

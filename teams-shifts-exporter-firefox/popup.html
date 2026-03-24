@@ -227,6 +227,33 @@
       color: #F48120;
     }
     #log.ok { color: #FBCE20; }
+
+    .progress-section {
+      margin-bottom: 14px;
+      display: none;
+    }
+    .progress-label {
+      font-size: 10px;
+      color: #7bacc8;
+      margin-bottom: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .progress-bar-track {
+      background: #01466e;
+      border: 1px solid #0277a8;
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #F48120;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
   </style>
 </head>
 <body>
@@ -243,6 +270,13 @@
     <div class="status-box">
       <div class="status-label">Last export</div>
       <div class="status-value none" id="lastExport">Never</div>
+    </div>
+
+    <div class="progress-section" id="progressSection">
+      <div class="progress-label" id="progressLabel">Syncing...</div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
     </div>
 
     <div class="sync-group">
