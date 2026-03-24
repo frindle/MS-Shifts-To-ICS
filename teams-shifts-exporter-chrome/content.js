@@ -195,6 +195,31 @@
     // Timed out — proceed anyway with whatever cards are present
   }
 
+  // Scroll the shifts grid container to the bottom and back to the top so that
+  // virtualised rows outside the viewport get rendered before we scrape.
+  async function scrollShiftsIntoView() {
+    const container =
+      document.querySelector('[data-tid="shifts-grid"]') ||
+      document.querySelector('[class*="scheduleGrid"]') ||
+      document.querySelector('[role="grid"]') ||
+      document.querySelector('[class*="shiftsBody"]') ||
+      // Last resort: find the deepest scrollable element inside the shifts iframe
+      Array.from(document.querySelectorAll('*')).find(
+        (el) => el.scrollHeight > el.clientHeight + 10 && getComputedStyle(el).overflowY !== 'visible'
+      );
+
+    if (!container) return;
+
+    const original = container.scrollTop;
+    container.scrollTop = container.scrollHeight;
+    await sleep(200);
+    container.scrollTop = 0;
+    await sleep(200);
+    // Restore original position so the UI looks unchanged
+    container.scrollTop = original;
+    await sleep(100);
+  }
+
   // ─── DOM Scraping ─────────────────────────────────────────────────────────
 
   // Find the "next week" navigation button
@@ -457,6 +482,9 @@
 
       for (let week = 0; week < totalWeeks; week++) {
         overlay.update(`Scraping week ${week + 1} of ${totalWeeks}...`);
+
+        // Scroll the grid so virtualised rows outside the viewport get rendered
+        await scrollShiftsIntoView();
 
         const weekShifts = scrapeCurrentWeek(userName);
         allRawShifts.push(...weekShifts);
