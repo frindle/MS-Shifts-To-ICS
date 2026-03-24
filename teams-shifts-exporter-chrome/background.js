@@ -33,6 +33,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Progress Helpers ─────────────────────────────────────────────────────────
+
+function setProgress(step, percent) {
+  chrome.storage.local.set({ syncRunning: true, syncStep: step, syncPercent: percent }).catch(() => {});
+}
+
+function clearProgress() {
+  chrome.storage.local.set({ syncRunning: false, syncStep: '', syncPercent: 0 }).catch(() => {});
+}
+
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
@@ -40,21 +50,25 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
   try {
     // Always open a fresh Teams tab in a minimized window so the scraper
     // never touches the user's existing tabs or blocks their screen.
+    setProgress('Opening Teams...', 2);
     const win = await chrome.windows.create({ url: TEAMS_SHIFTS_URL, state: 'minimized' });
     scrapeWinId = win.id;
     const tab = win.tabs[0];
 
     // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
     await waitForTeamsReady(tab.id);
+    setProgress('Navigating to Shifts...', 8);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
     await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 });
 
     // Step 2: wait for the Shifts iframe to appear and get its frameId
     const shiftsFrame = await waitForShiftsFrame(tab.id);
+    setProgress('Loading Shifts...', 14);
 
     // Step 3: inject content script into the iframe and wait for Shifts UI to render
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [shiftsFrame.frameId] }, files: ['content.js'] });
     await waitForShiftsReady(tab.id, shiftsFrame.frameId);
+    setProgress('Starting scrape...', 18);
 
     // Auto-detect user name from Teams top frame ("Account manager for ...")
     let { userName } = await chrome.storage.local.get('userName');
@@ -89,6 +103,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (!response || !response.success) {
       throw new Error(response?.error || 'Scrape failed');
     }
+    setProgress('Processing shifts...', 70);
 
     // Filter out open shifts if the user disabled them
     const { includeOpenShifts } = await chrome.storage.local.get('includeOpenShifts');
@@ -112,17 +127,20 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     const { importToiCloud } = await chrome.storage.local.get('importToiCloud');
     let icloudResult = null;
     if (importToiCloud && !skipICloud) {
+      setProgress('Syncing to iCloud...', 82);
       icloudResult = await syncToiCloud(mergedEvents);
     }
 
     // Update last export time and store ICS for clear & re-import
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
 
+    clearProgress();
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     return { success: false, error: err.message };
   } finally {
+    clearProgress();
     // Always close the scraping window when done
     if (scrapeWinId) {
       try { await chrome.windows.remove(scrapeWinId); } catch {}
@@ -663,6 +681,11 @@ async function syncToiCloud(events) {
 // ─── Message Handler (from popup) ────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.action === 'SYNC_PROGRESS') {
+    chrome.storage.local.set({ syncRunning: true, syncStep: msg.step, syncPercent: msg.percent }).catch(() => {});
+    return false;
+  }
+
   if (msg.action === 'EXPORT_NOW') {
     runExport({ auto: false }).then((r) => {
       try { sendResponse(r); } catch {}

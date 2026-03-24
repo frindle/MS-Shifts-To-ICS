@@ -50,6 +50,50 @@ const icloudAppPasswordEl = document.getElementById('icloudAppPassword');
 const saveICloudCredsBtn = document.getElementById('saveICloudCredsBtn');
 const icloudCredsStatusEl = document.getElementById('icloudCredsStatus');
 
+// ─── Progress Polling ─────────────────────────────────────────────────────────
+
+const progressSectionEl = document.getElementById('progressSection');
+const progressLabelEl = document.getElementById('progressLabel');
+const progressFillEl = document.getElementById('progressFill');
+
+let progressInterval = null;
+
+function updateProgressUI(step, percent) {
+  progressSectionEl.style.display = 'block';
+  progressLabelEl.textContent = step || 'Syncing...';
+  progressFillEl.style.width = `${percent || 0}%`;
+}
+
+function hideProgress() {
+  progressSectionEl.style.display = 'none';
+  progressFillEl.style.width = '0%';
+  if (progressInterval) {
+    clearInterval(progressInterval);
+    progressInterval = null;
+  }
+}
+
+function startProgressPolling() {
+  if (progressInterval) return;
+  progressInterval = setInterval(() => {
+    chrome.storage.local.get(['syncRunning', 'syncStep', 'syncPercent'], (data) => {
+      if (data.syncRunning) {
+        updateProgressUI(data.syncStep, data.syncPercent);
+      } else {
+        hideProgress();
+      }
+    });
+  }, 500);
+}
+
+// On popup open, check if a sync is already running
+chrome.storage.local.get(['syncRunning', 'syncStep', 'syncPercent'], (data) => {
+  if (data.syncRunning) {
+    updateProgressUI(data.syncStep, data.syncPercent);
+    startProgressPolling();
+  }
+});
+
 // Show target date
 const target = getTargetEndDate();
 targetDateEl.textContent = target.toLocaleDateString(undefined, {
@@ -152,6 +196,7 @@ const clearReimportBtn = document.getElementById('clearReimportBtn');
 clearReimportBtn.addEventListener('click', () => {
   clearReimportBtn.disabled = true;
   clearReimportBtn.textContent = 'Clearing & re-importing...';
+  startProgressPolling();
   logEl.textContent = '';
   logEl.className = '';
 
@@ -200,6 +245,7 @@ downloadICSBtn.addEventListener('click', () => {
 exportBtn.addEventListener('click', () => {
   exportBtn.disabled = true;
   exportBtn.textContent = 'Syncing...';
+  startProgressPolling();
   logEl.textContent = '';
   logEl.className = '';
 
