@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.21
+- Firefox: fixed ICS download blocked by browser security (switched to blob URL)
+
 ### v1.20
 - Chrome: fixed Outlook import window minimizing macOS windows (now opens as background tab)
 

@@ -329,17 +329,10 @@ function buildFilename() {
 }
 
 async function downloadICS(icsContent, filename) {
-  // Firefox requires a data URL or object URL for downloads.download()
-  // Using a data URL avoids the need to revoke it from a service worker context.
-  const encoded = encodeURIComponent(icsContent);
-  const dataUrl = `data:text/calendar;charset=utf-8,${encoded}`;
-
-  await browser.downloads.download({
-    url: dataUrl,
-    filename,
-    saveAs: false,
-    conflictAction: 'overwrite',
-  });
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  await browser.downloads.download({ url, filename, saveAs: false, conflictAction: 'overwrite' });
+  URL.revokeObjectURL(url);
 }
 
 function sleep(ms) {
