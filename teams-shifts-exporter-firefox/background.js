@@ -58,8 +58,9 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
   try {
     // Open a fresh Teams tab in a minimized window so the scraper never
     // interrupts the user's screen.
+    browser.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
-    const win = await browser.windows.create({ url: TEAMS_SHIFTS_URL, state: 'minimized' });
+    const win = await browser.windows.create({ url: TEAMS_SHIFTS_URL, focused: false, left: -5000, top: 0, width: 1280, height: 900 });
     scrapeWinId = win.id;
     const tab = win.tabs[0];
     await sleep(4000); // give Teams time to start loading
@@ -151,11 +152,14 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await browser.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
 
     clearProgress();
+    browser.storage.local.set({ lastError: null });
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
+    const errMsg = err.message || 'Unknown error';
+    browser.storage.local.set({ lastError: errMsg });
     clearProgress();
-    return { success: false, error: err.message };
+    return { success: false, error: errMsg };
   } finally {
     clearProgress();
     if (scrapeWinId) {

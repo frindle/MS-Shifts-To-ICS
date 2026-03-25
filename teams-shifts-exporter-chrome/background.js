@@ -57,8 +57,9 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
   try {
     // Always open a fresh Teams tab in a minimized window so the scraper
     // never touches the user's existing tabs or blocks their screen.
+    chrome.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
-    const win = await chrome.windows.create({ url: TEAMS_SHIFTS_URL, state: 'minimized' });
+    const win = await chrome.windows.create({ url: TEAMS_SHIFTS_URL, focused: false, left: -5000, top: 0, width: 1280, height: 900 });
     scrapeWinId = win.id;
     const tab = win.tabs[0];
 
@@ -146,19 +147,22 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     // Update last export time and store ICS for clear & re-import
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
 
+    chrome.storage.local.set({ lastError: null });
     clearProgress();
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
+    const errMsg = err.message || 'Unknown error';
+    chrome.storage.local.set({ lastError: errMsg });
     if (auto) {
       chrome.notifications.create('sync-failed', {
         type: 'basic',
         iconUrl: 'icon.png',
         title: 'Teams Shifts — Sync Failed',
-        message: err.message || 'The daily sync encountered an error. Open the extension to retry.',
+        message: errMsg,
       });
     }
-    return { success: false, error: err.message };
+    return { success: false, error: errMsg };
   } finally {
     clearProgress();
     // Always close the scraping window when done
