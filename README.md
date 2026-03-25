@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.20
+- Chrome: fixed Outlook import window minimizing macOS windows (now opens as background tab)
+
 ### v1.19
 - iCloud app password now persists between extension updates
 - Chrome: fixed ICS download (was blocked by MV3 service worker restrictions)

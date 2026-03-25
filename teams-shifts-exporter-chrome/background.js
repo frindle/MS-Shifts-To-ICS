@@ -232,10 +232,10 @@ async function getOrOpenOutlookTab(autoMode) {
   // In auto mode, don't open a new Outlook tab unexpectedly
   if (autoMode) return null;
 
-  // Open Outlook in a minimized window so it doesn't interrupt the user
-  const win = await chrome.windows.create({ url: OUTLOOK_CALENDAR_URL, state: 'minimized' });
+  // Open Outlook in a background tab so it doesn't interrupt the user
+  const tab = await chrome.tabs.create({ url: OUTLOOK_CALENDAR_URL, active: false });
   await sleep(5000); // wait for Outlook Web to load
-  return win.tabs[0];
+  return tab;
 }
 
 // ─── History Merging ──────────────────────────────────────────────────────────
