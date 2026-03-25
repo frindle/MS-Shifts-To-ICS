@@ -22,7 +22,12 @@ function compareVersions(a, b) {
     .then((remote) => {
       if (compareVersions(remote.version, current) > 0) {
         const banner = document.getElementById('updateBanner');
-        banner.innerHTML = `Update available (v${remote.version}) — <a href="${README_URL}" target="_blank">download here</a>`;
+        const link = document.createElement('a');
+        link.href = README_URL;
+        link.target = '_blank';
+        link.textContent = 'download here';
+        banner.textContent = `Update available (v${remote.version}) — `;
+        banner.appendChild(link);
         banner.style.display = 'block';
       }
     })
