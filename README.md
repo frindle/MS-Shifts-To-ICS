@@ -5,7 +5,7 @@ Browser extensions that scrape your Microsoft Teams Shifts schedule and export i
 ## Download
 
 ### Firefox
-> **[Download latest Firefox extension (.xpi)](https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox.xpi)**
+> **[Download latest Firefox extension (.xpi)](https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox-1.17-signed.xpi)**
 
 1. Click the link above to download the `.xpi` file
 2. In Firefox, go to `about:addons` → gear icon → **Install Add-on From File…**
