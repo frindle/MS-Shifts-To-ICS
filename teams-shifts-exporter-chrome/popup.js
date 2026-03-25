@@ -1,5 +1,34 @@
 // popup.js
 
+// ─── Update Check ─────────────────────────────────────────────────────────────
+
+const README_URL = 'https://github.com/frindle/MS-Shifts-To-ICS#readme';
+const VERSION_URL = 'https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/teams-shifts-exporter-chrome/manifest.json';
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+(function checkForUpdate() {
+  const current = chrome.runtime.getManifest().version;
+  fetch(VERSION_URL)
+    .then((r) => r.json())
+    .then((remote) => {
+      if (compareVersions(remote.version, current) > 0) {
+        const banner = document.getElementById('updateBanner');
+        banner.innerHTML = `Update available (v${remote.version}) — <a href="${README_URL}" target="_blank">download here</a>`;
+        banner.style.display = 'block';
+      }
+    })
+    .catch(() => {});
+})();
+
 function getTargetEndDate() {
   const now = new Date();
   const year = now.getFullYear();

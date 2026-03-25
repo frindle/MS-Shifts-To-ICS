@@ -25,7 +25,8 @@
     "https://outlook.office.com/*",
     "https://outlook.office365.com/*",
     "https://graph.microsoft.com/*",
-    "https://*.icloud.com/*"
+    "https://*.icloud.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "background": {
     "scripts": ["background.js"],

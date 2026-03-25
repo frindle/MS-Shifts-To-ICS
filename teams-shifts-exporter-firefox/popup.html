@@ -268,6 +268,23 @@
     }
     #cancelSyncBtn:hover { color: #e8edf2; border-color: #5a8aab; }
     #cancelSyncBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #updateBanner {
+      display: none;
+      background: #1a5c2e;
+      border: 1px solid #2e9e52;
+      border-radius: 6px;
+      padding: 9px 12px;
+      margin-bottom: 14px;
+      font-size: 11px;
+      color: #b6f0c8;
+    }
+    #updateBanner a {
+      color: #FBCE20;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    #updateBanner a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -277,6 +294,8 @@
   </div>
 
   <div class="body">
+    <div id="updateBanner"></div>
+
     <div class="target-box">
       Exporting through <span id="targetDate">—</span>
     </div>
