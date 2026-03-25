@@ -33,6 +33,10 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.22 / v1.22.1 (Firefox)
+- Fixed long status messages causing horizontal scrollbar in popup
+- Firefox: fixed double-scrape when sync was triggered concurrently
+
 ### v1.21
 - Firefox: fixed ICS download blocked by browser security (switched to blob URL)
 
