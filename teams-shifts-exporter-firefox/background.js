@@ -54,10 +54,11 @@ async function checkCancelled() {
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
+  const { syncRunning } = await browser.storage.local.get('syncRunning');
+  if (syncRunning) return { success: false, error: 'Sync already in progress' };
+
   let scrapeWinId = null;
   try {
-    // Open a fresh Teams tab in a minimized window so the scraper never
-    // interrupts the user's screen.
     browser.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
     const win = await browser.windows.create({ url: TEAMS_SHIFTS_URL, focused: false, left: -5000, top: 0, width: 1280, height: 900 });
