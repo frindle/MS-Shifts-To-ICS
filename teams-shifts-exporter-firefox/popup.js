@@ -2,7 +2,7 @@
 
 // ─── Update Check ─────────────────────────────────────────────────────────────
 
-const README_URL = 'https://github.com/frindle/MS-Shifts-To-ICS#readme';
+const DOWNLOAD_URL = 'https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox-signed.xpi';
 const VERSION_URL = 'https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/teams-shifts-exporter-firefox/manifest.json';
 
 function compareVersions(a, b) {
@@ -23,7 +23,7 @@ function compareVersions(a, b) {
       if (compareVersions(remote.version, current) > 0) {
         const banner = document.getElementById('updateBanner');
         const link = document.createElement('a');
-        link.href = README_URL;
+        link.href = DOWNLOAD_URL;
         link.target = '_blank';
         link.textContent = 'download here';
         banner.textContent = `Update available (v${remote.version}) — `;

@@ -2,7 +2,7 @@
 
 // ─── Update Check ─────────────────────────────────────────────────────────────
 
-const README_URL = 'https://github.com/frindle/MS-Shifts-To-ICS#readme';
+const DOWNLOAD_URL = 'https://github.com/frindle/MS-Shifts-To-ICS/releases/latest';
 const VERSION_URL = 'https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/teams-shifts-exporter-chrome/manifest.json';
 
 function compareVersions(a, b) {
@@ -22,7 +22,7 @@ function compareVersions(a, b) {
     .then((remote) => {
       if (compareVersions(remote.version, current) > 0) {
         const banner = document.getElementById('updateBanner');
-        banner.innerHTML = `Update available (v${remote.version}) — <a href="${README_URL}" target="_blank">download here</a>`;
+        banner.innerHTML = `Update available (v${remote.version}) — <a href="${DOWNLOAD_URL}" target="_blank">download here</a>`;
         banner.style.display = 'block';
       }
     })
