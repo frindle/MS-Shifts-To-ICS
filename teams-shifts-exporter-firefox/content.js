@@ -512,6 +512,13 @@
       for (let week = 0; week < totalWeeks; week++) {
         overlay.update(`Scraping week ${week + 1} of ${totalWeeks}...`);
 
+        // Send per-week progress to background (popup polls this)
+        browser.runtime.sendMessage({
+          action: 'SYNC_PROGRESS',
+          step: `Scraping week ${week + 1} of ${totalWeeks}…`,
+          percent: 18 + Math.round((week / totalWeeks) * 50),
+        }).catch(() => {});
+
         // Bail out if the user cancelled
         const { syncCancelled } = await browser.storage.local.get('syncCancelled');
         if (syncCancelled) throw new Error('Sync cancelled');

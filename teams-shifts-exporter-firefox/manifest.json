@@ -18,6 +18,7 @@
     "alarms",
     "downloads",
     "tabs",
+    "windows",
     "webNavigation",
     "notifications",
     "https://teams.cloud.microsoft/*",

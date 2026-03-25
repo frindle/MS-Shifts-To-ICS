@@ -54,21 +54,15 @@ async function checkCancelled() {
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
+  let scrapeWinId = null;
   try {
+    // Open a fresh Teams tab in a minimized window so the scraper never
+    // interrupts the user's screen.
     setProgress('Opening Teams...', 2);
-    const tab = await getOrOpenTeamsShiftsTab(auto);
-    if (!tab) {
-      console.warn('[ShiftsExport] No Teams Shifts tab available.');
-      if (auto) {
-        browser.notifications.create({
-          type: 'basic',
-          iconUrl: 'icon.png',
-          title: 'Teams Shifts Export',
-          message: 'Auto-export skipped — Teams is not open. Open Teams and click Export.',
-        });
-      }
-      return { success: false, error: 'No Teams tab found' };
-    }
+    const win = await browser.windows.create({ url: TEAMS_SHIFTS_URL, state: 'minimized' });
+    scrapeWinId = win.id;
+    const tab = win.tabs[0];
+    await sleep(4000); // give Teams time to start loading
 
     // Step 1: inject into top frame and navigate to Shifts
     await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: 0 });
@@ -162,6 +156,11 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     console.error('[ShiftsExport] Export error:', err);
     clearProgress();
     return { success: false, error: err.message };
+  } finally {
+    clearProgress();
+    if (scrapeWinId) {
+      try { await browser.windows.remove(scrapeWinId); } catch {}
+    }
   }
 }
 
