@@ -145,10 +145,8 @@ targetDateEl.textContent = target.toLocaleDateString(undefined, {
 const includeOpenShiftsEl = document.getElementById('includeOpenShifts');
 
 function setICloudCredsCollapsed(collapsed, email) {
-  icloudCredsFieldsEl.style.display = collapsed ? 'none' : 'block';
+  icloudCredsSectionEl.style.display = collapsed ? 'none' : 'block';
   icloudCredsChevronEl.classList.toggle('open', !collapsed);
-  icloudCredsSummaryEl.textContent = collapsed && email ? email : '';
-  icloudCredsSummaryEl.style.display = collapsed && email ? 'block' : 'none';
 }
 
 chrome.storage.local.get(
@@ -166,15 +164,16 @@ chrome.storage.local.get(
 
     if (data.importToiCloud) {
       importToiCloudEl.checked = true;
-      icloudCredsSectionEl.style.display = 'block';
       icloudCredsChevronEl.style.display = 'inline';
+      if (!data.icloudCredsSet) {
+        // No saved creds — show fields expanded
+        icloudCredsSectionEl.style.display = 'block';
+        icloudCredsChevronEl.classList.add('open');
+      }
+      // If creds are saved, section stays hidden until chevron clicked
     }
     if (data.icloudEmail) {
       icloudEmailEl.value = data.icloudEmail;
-    }
-    // Collapse the credentials fields if already saved
-    if (data.icloudCredsSet) {
-      setICloudCredsCollapsed(true, data.icloudEmail);
     }
   }
 );
@@ -187,13 +186,17 @@ importToOutlookEl.addEventListener('change', () => {
 // iCloud toggle — show/hide credential section and chevron
 importToiCloudEl.addEventListener('change', () => {
   const on = importToiCloudEl.checked;
-  icloudCredsSectionEl.style.display = on ? 'block' : 'none';
   icloudCredsChevronEl.style.display = on ? 'inline' : 'none';
-  // When turning on, expand fields if no credentials saved yet
   if (on) {
-    chrome.storage.local.get(['icloudCredsSet', 'icloudEmail'], (data) => {
-      setICloudCredsCollapsed(!!data.icloudCredsSet, data.icloudEmail);
+    // Only expand if no credentials saved yet; otherwise stay hidden until chevron clicked
+    chrome.storage.local.get('icloudCredsSet', (data) => {
+      if (!data.icloudCredsSet) {
+        icloudCredsSectionEl.style.display = 'block';
+        icloudCredsChevronEl.classList.add('open');
+      }
     });
+  } else {
+    icloudCredsSectionEl.style.display = 'none';
   }
   chrome.storage.local.set({ importToiCloud: on });
 });
@@ -201,10 +204,8 @@ importToiCloudEl.addEventListener('change', () => {
 // Chevron click — expand/collapse credential fields
 icloudCredsChevronEl.addEventListener('click', (e) => {
   e.stopPropagation();
-  const isCollapsed = icloudCredsFieldsEl.style.display === 'none';
-  chrome.storage.local.get('icloudEmail', (data) => {
-    setICloudCredsCollapsed(!isCollapsed, data.icloudEmail);
-  });
+  const isCollapsed = icloudCredsSectionEl.style.display === 'none';
+  setICloudCredsCollapsed(!isCollapsed);
 });
 
 // Save iCloud credentials and auto-collapse
@@ -219,7 +220,7 @@ saveICloudCredsBtn.addEventListener('click', () => {
   chrome.storage.local.set({ icloudEmail: email, icloudAppPassword: password, icloudCredsSet: true }, () => {
     icloudAppPasswordEl.value = '';
     icloudCredsStatusEl.textContent = '';
-    setICloudCredsCollapsed(true, email);
+    setICloudCredsCollapsed(true);
   });
 });
 
