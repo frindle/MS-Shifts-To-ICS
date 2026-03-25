@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Teams Shifts to ICS",
-  "version": "1.18.1",
+  "version": "1.19",
   "description": "Scrape Microsoft Teams Shifts and export to ICS calendar file",
-  "permissions": ["storage", "alarms", "downloads", "tabs", "scripting", "windows", "notifications"],
+  "permissions": ["storage", "alarms", "downloads", "tabs", "scripting", "offscreen", "notifications"],
   "host_permissions": [
     "https://teams.cloud.microsoft/*",
     "https://flw.teams.cloud.microsoft/*",

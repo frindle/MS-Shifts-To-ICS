@@ -5,7 +5,7 @@ Browser extensions that scrape your Microsoft Teams Shifts schedule and export i
 ## Download
 
 ### Firefox
-> **[Download latest Firefox extension (.xpi)](https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox-1.18-signed.xpi)**
+> **[Download latest Firefox extension (.xpi)](https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox-1.19-signed.xpi)**
 
 1. Click the link above to download the `.xpi` file
 2. In Firefox, go to `about:addons` → gear icon → **Install Add-on From File…**
@@ -32,6 +32,15 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 3. Optionally enable **Outlook Calendar** or **iCloud Calendar** sync in the popup
 
 ## Changelog
+
+### v1.19
+- iCloud app password now persists between extension updates
+- Chrome: fixed ICS download (was blocked by MV3 service worker restrictions)
+- Chrome: fixed "stuck on Opening Teams" when Teams was already open
+- Firefox: fixed week X of XX progress during scraping
+- Firefox: sync now runs in a background window
+- Show last sync error in popup if previous sync failed
+- Update banner in popup when a newer version is available
 
 ### v1.17
 - Open shift 8-hour gap filter is now always applied (no longer optional)

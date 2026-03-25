@@ -151,7 +151,7 @@ function setICloudCredsCollapsed(collapsed) {
 }
 
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudCredsSet', 'lastError'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError'],
   (data) => {
     if (data.lastError) {
       logEl.textContent = `Last sync failed: ${data.lastError}`;
@@ -177,6 +177,9 @@ chrome.storage.local.get(
     }
     if (data.icloudEmail) {
       icloudEmailEl.value = data.icloudEmail;
+    }
+    if (data.icloudAppPassword) {
+      icloudAppPasswordEl.value = data.icloudAppPassword;
     }
   }
 );

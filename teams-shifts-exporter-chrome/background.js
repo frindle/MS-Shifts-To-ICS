@@ -53,15 +53,20 @@ async function checkCancelled() {
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
-  let scrapeWinId = null;
   try {
-    // Always open a fresh Teams tab in a minimized window so the scraper
-    // never touches the user's existing tabs or blocks their screen.
     chrome.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
-    const win = await chrome.windows.create({ url: TEAMS_SHIFTS_URL, focused: false, left: -5000, top: 0, width: 1280, height: 900 });
-    scrapeWinId = win.id;
-    const tab = win.tabs[0];
+    const tab = await getOrOpenTeamsShiftsTab(auto);
+    if (!tab) {
+      chrome.notifications.create('sync-skipped', {
+        type: 'basic',
+        iconUrl: 'icon48.png',
+        title: 'Teams Shifts — Sync Skipped',
+        message: 'Auto-sync skipped — Teams is not open. Open Teams and click Sync Shifts.',
+      });
+      clearProgress();
+      return { success: false, error: 'No Teams tab found' };
+    }
 
     // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
     await waitForTeamsReady(tab.id);
@@ -165,11 +170,24 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     return { success: false, error: errMsg };
   } finally {
     clearProgress();
-    // Always close the scraping window when done
-    if (scrapeWinId) {
-      try { await chrome.windows.remove(scrapeWinId); } catch {}
-    }
   }
+}
+
+async function getOrOpenTeamsShiftsTab(autoMode) {
+  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (tabs.length > 0) {
+    const shiftsTab = tabs.find((t) => t.url && (t.url.includes('scheduling') || t.url.includes('shifts')));
+    const tab = shiftsTab || tabs[0];
+    if (!tab.url.includes('scheduling') && !tab.url.includes('shifts')) {
+      await chrome.tabs.update(tab.id, { url: TEAMS_SHIFTS_URL });
+      await sleep(3000);
+    }
+    return tab;
+  }
+  if (autoMode) return null;
+  const tab = await chrome.tabs.create({ url: TEAMS_SHIFTS_URL, active: false });
+  await sleep(4000);
+  return tab;
 }
 
 // ─── Outlook Web Import ───────────────────────────────────────────────────────
@@ -304,15 +322,17 @@ function buildFilename() {
 }
 
 async function downloadICS(icsContent, filename) {
-  const encoded = encodeURIComponent(icsContent);
-  const dataUrl = `data:text/calendar;charset=utf-8,${encoded}`;
+  // MV3 service workers can't use data: URLs with downloads.download().
+  // Use an offscreen document to create a blob URL instead.
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['BLOBS'],
+    justification: 'Create object URL for ICS calendar download',
+  }).catch(() => {}); // ignore if already exists
 
-  await chrome.downloads.download({
-    url: dataUrl,
-    filename,
-    saveAs: false,
-    conflictAction: 'overwrite',
-  });
+  await chrome.runtime.sendMessage({ action: 'OFFSCREEN_DOWNLOAD', content: icsContent, filename });
+
+  await chrome.offscreen.closeDocument().catch(() => {});
 }
 
 function sleep(ms) {
