@@ -125,6 +125,12 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
+    // Close the scrape window now — no need to keep it open for iCloud/Outlook sync
+    if (scrapeWinId) {
+      try { await browser.windows.remove(scrapeWinId); } catch {}
+      scrapeWinId = null;
+    }
+
     // Filter open shifts based on user settings
     const { includeOpenShifts } = await browser.storage.local.get('includeOpenShifts');
     let events = response.events || [];
@@ -638,7 +644,7 @@ class iCloudCalDAVClient {
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
           syncedOpenShiftUids.add(uid);
-          await sleep(250); // pace requests to avoid iCloud rate-limiting
+          await sleep(500); // pace requests to avoid iCloud rate-limiting
         }
       } else {
         // Scheduled shifts: always upsert

@@ -33,6 +33,10 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.5 (Firefox)
+- Close the Teams scrape window immediately after scraping, before iCloud/Outlook sync runs
+- Increased iCloud upload delay to 500ms to further reduce rate-limit stalls
+
 ### v1.24.4
 - Fixed wrong "more apps" button being clicked (was selecting chat's "..." instead of the left sidebar one), causing "Timed out waiting for Shifts iframe"
 
