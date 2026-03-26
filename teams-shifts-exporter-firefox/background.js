@@ -638,12 +638,14 @@ class iCloudCalDAVClient {
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
           syncedOpenShiftUids.add(uid);
+          await sleep(250); // pace requests to avoid iCloud rate-limiting
         }
       } else {
         // Scheduled shifts: always upsert
         await checkCancelled();
         if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
         await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+        await sleep(250); // pace requests to avoid iCloud rate-limiting
       }
     }
 

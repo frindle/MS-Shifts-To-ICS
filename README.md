@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.3
+- Firefox: add 250ms delay between iCloud uploads to prevent rate-limit stalls mid-upload
+
 ### v1.24.3 (Chrome) / v1.24.2 (Firefox)
 - Firefox: retry iCloud uploads up to 3 times on stall/timeout to fix hang mid-upload
 - Firefox: increased popup width by 5% to reduce scrollbars
