@@ -33,11 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
-### v1.24
-- Firefox: fixed sync failure after Teams "Almost there!" permissions dialog caused a page reload
-
-### v1.23
-- Firefox: auto-dismiss Teams "Almost there!" permission dialog when opening Shifts
+### v1.24 (Firefox) / v1.23 (Chrome)
+- Auto-dismiss Teams "Almost there!" permissions dialog when opening Shifts
+- Fixed sync failure when Teams reloads the page after accepting the permissions dialog
 
 ### v1.22 / v1.22.1 (Firefox)
 - Fixed long status messages causing horizontal scrollbar in popup

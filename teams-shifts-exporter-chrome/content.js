@@ -318,6 +318,31 @@
     return shifts;
   }
 
+  // ─── Teams Permission Dialog ──────────────────────────────────────────────
+  // Teams sometimes shows an "Almost there!" consent dialog when first opening
+  // Shifts. Detect it and click Continue so the scrape can proceed.
+
+  async function dismissTeamsPermissionDialog(maxWaitMs = 8000) {
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+      const hasDialog = Array.from(document.querySelectorAll('*')).some(
+        (el) => el.childElementCount === 0 && /almost there/i.test(el.textContent)
+      );
+      if (hasDialog) {
+        const continueBtn = Array.from(document.querySelectorAll('button')).find(
+          (btn) => /^continue$/i.test(btn.textContent.trim())
+        );
+        if (continueBtn) {
+          continueBtn.click();
+          await sleep(1500);
+          return true;
+        }
+      }
+      await sleep(400);
+    }
+    return false;
+  }
+
   // ─── Navigate to Shifts ───────────────────────────────────────────────────
   // New Teams (teams.cloud.microsoft) doesn't have a direct URL for Shifts.
   // We click: left sidebar "..." (more apps) → Shifts.
@@ -333,6 +358,7 @@
     if (pinnedShifts) {
       pinnedShifts.click();
       await sleep(2000);
+      await dismissTeamsPermissionDialog();
       return true;
     }
 
@@ -367,6 +393,7 @@
 
     shiftsItem.click();
     await sleep(2500); // wait for Shifts to load
+    await dismissTeamsPermissionDialog();
     return true;
   }
 

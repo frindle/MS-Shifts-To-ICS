@@ -73,7 +73,15 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await checkCancelled();
     setProgress('Navigating to Shifts...', 8);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
-    await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 });
+    await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
+
+    // Teams may reload the page after the user accepts a first-run permissions
+    // dialog ("Almost there!"). Wait for the tab to settle, then re-inject and
+    // re-navigate so the scrape proceeds even if the content script was destroyed.
+    await waitForTabComplete(tab.id, 10000);
+    await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }).catch(() => {});
+    await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
+    await sleep(2000);
 
     // Step 2: wait for the Shifts iframe to appear and get its frameId
     const shiftsFrame = await waitForShiftsFrame(tab.id);
@@ -354,6 +362,19 @@ function isEligibleOpenShift(openShift, scheduledShifts) {
 }
 
 // ─── Load Polling Helpers ─────────────────────────────────────────────────────
+
+// Wait for the tab to reach "complete" status (handles post-reload settling).
+async function waitForTabComplete(tabId, timeoutMs = 10000) {
+  await sleep(600); // let any in-flight navigation begin before we start polling
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.status === 'complete') return;
+    } catch {}
+    await sleep(400);
+  }
+}
 
 // Poll until Teams sidebar navigation elements are available in the top frame
 async function waitForTeamsReady(tabId, timeoutMs = 20000) {
