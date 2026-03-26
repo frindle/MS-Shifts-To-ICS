@@ -334,7 +334,7 @@
         );
         if (continueBtn) {
           continueBtn.click();
-          await sleep(5000); // wait long enough for Teams to begin the post-auth reload
+          await sleep(2500); // wait long enough for Teams to begin the post-auth reload
           return true;
         }
       }

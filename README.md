@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.1 (Firefox) / v1.24.2 (Chrome)
+- Chrome: reduced post-Continue pause to 2500ms
+
 ### v1.24.1 (Firefox) / v1.23.1 (Chrome)
 - Fixed sync getting stuck after clicking Continue on the "Almost there!" dialog (added delay to let Teams finish its post-auth reload before re-navigating)
 
