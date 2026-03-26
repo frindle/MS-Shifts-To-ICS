@@ -563,19 +563,30 @@ class iCloudCalDAVClient {
   // PUT a single event. Tries create-only first (If-None-Match: *); if the event
   // already exists (412), retries as an unconditional update. This avoids needing
   // to track ETags while still satisfying iCloud's precondition requirements.
+  // Retries up to 2 times on timeout/network errors to handle iCloud stalls.
   async putEvent(calendarUrl, uid, icsContent) {
     const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
     const url = `${base}${uid}.ics`;
     const headers = { 'Content-Type': 'text/calendar; charset=utf-8' };
 
-    let res = await this.request(url, 'PUT', icsContent, { ...headers, 'If-None-Match': '*' });
-    if (res.status === 412) {
-      // Event already exists — update it unconditionally
-      res = await this.request(url, 'PUT', icsContent, headers);
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await sleep(2000 * attempt);
+        let res = await this.request(url, 'PUT', icsContent, { ...headers, 'If-None-Match': '*' });
+        if (res.status === 412) {
+          res = await this.request(url, 'PUT', icsContent, headers);
+        }
+        if (res.status < 200 || res.status >= 300) {
+          throw new Error(`iCloud PUT failed (HTTP ${res.status}) for ${uid}`);
+        }
+        return; // success
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[iCloud] putEvent attempt ${attempt + 1} failed for ${uid}:`, err.message);
+      }
     }
-    if (res.status < 200 || res.status >= 300) {
-      throw new Error(`iCloud PUT failed (HTTP ${res.status}) for ${uid}`);
-    }
+    throw lastErr;
   }
 
   async deleteEvent(eventUrl) {
