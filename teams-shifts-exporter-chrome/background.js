@@ -53,11 +53,12 @@ async function checkCancelled() {
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
+  let scrapeTabId = null;
   try {
     chrome.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
-    const tab = await getOrOpenTeamsShiftsTab(auto);
-    if (!tab) {
+    const tabResult = await getOrOpenTeamsShiftsTab(auto);
+    if (!tabResult) {
       chrome.notifications.create('sync-skipped', {
         type: 'basic',
         iconUrl: 'icon48.png',
@@ -67,6 +68,8 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
       clearProgress();
       return { success: false, error: 'No Teams tab found' };
     }
+    const { tab, opened: tabOpened } = tabResult;
+    if (tabOpened) scrapeTabId = tab.id;
 
     // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
     await waitForTeamsReady(tab.id);
@@ -178,6 +181,9 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     return { success: false, error: errMsg };
   } finally {
     clearProgress();
+    if (scrapeTabId) {
+      try { await chrome.tabs.remove(scrapeTabId); } catch {}
+    }
   }
 }
 
@@ -190,12 +196,12 @@ async function getOrOpenTeamsShiftsTab(autoMode) {
       await chrome.tabs.update(tab.id, { url: TEAMS_SHIFTS_URL });
       await sleep(3000);
     }
-    return tab;
+    return { tab, opened: false };
   }
   if (autoMode) return null;
   const tab = await chrome.tabs.create({ url: TEAMS_SHIFTS_URL, active: false });
   await sleep(4000);
-  return tab;
+  return { tab, opened: true };
 }
 
 // ─── Outlook Web Import ───────────────────────────────────────────────────────

@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.3 (Chrome)
+- Close the Teams tab opened for scraping after sync completes
+
 ### v1.24.1 (Firefox) / v1.24.2 (Chrome)
 - Chrome: reduced post-Continue pause to 2500ms
 
