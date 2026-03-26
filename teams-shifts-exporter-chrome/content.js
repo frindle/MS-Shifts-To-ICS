@@ -362,13 +362,15 @@
       return true;
     }
 
-    // Otherwise open the "more apps" / three-dots menu
+    // Otherwise open the "more apps" / three-dots menu in the far-left sidebar.
+    // Be specific — Teams has many "more" buttons (e.g. "More options" near chat).
     const moreBtn =
-      document.querySelector('[aria-label*="more" i][role="button"]') ||
-      document.querySelector('[aria-label*="Apps" i][role="button"]') ||
-      Array.from(document.querySelectorAll('[role="button"]')).find((el) =>
-        /^(more|…|\.\.\.)$/i.test(el.textContent.trim()) ||
-        /more apps/i.test(el.getAttribute('aria-label') || '')
+      document.querySelector('[aria-label="More apps"]') ||
+      document.querySelector('[aria-label="More added apps"]') ||
+      document.querySelector('[aria-label*="more apps" i]') ||
+      // Fallback: a "..." button that is a direct child of a nav/sidebar element
+      Array.from(document.querySelectorAll('nav [role="button"], [data-tid*="sidebar"] [role="button"], [data-tid*="rail"] [role="button"]')).find((el) =>
+        /^(…|\.\.\.)$/.test(el.textContent.trim())
       );
 
     if (!moreBtn) {

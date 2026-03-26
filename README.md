@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.4
+- Fixed wrong "more apps" button being clicked (was selecting chat's "..." instead of the left sidebar one), causing "Timed out waiting for Shifts iframe"
+
 ### v1.24.3
 - Firefox: add 250ms delay between iCloud uploads to prevent rate-limit stalls mid-upload
 
