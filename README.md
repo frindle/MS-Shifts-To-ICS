@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.24.6 (Firefox)
+- Fixed iCloud upload hanging mid-way by making the background page persistent (Firefox was suspending it during long syncs, pausing all fetches and timeouts)
+
 ### v1.24.5 (Firefox)
 - Close the Teams scrape window immediately after scraping, before iCloud/Outlook sync runs
 - Increased iCloud upload delay to 500ms to further reduce rate-limit stalls
