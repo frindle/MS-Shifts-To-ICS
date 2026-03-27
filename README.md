@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25
+- Increased week-load timeouts: shifts-stable wait raised to 10s max, week-change wait to 8s (both still exit early as soon as content is ready)
+
 ### v1.24.6 (Firefox)
 - Fixed iCloud upload hanging mid-way by making the background page persistent (Firefox was suspending it during long syncs, pausing all fetches and timeouts)
 

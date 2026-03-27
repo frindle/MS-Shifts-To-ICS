@@ -147,7 +147,7 @@
     return '';
   }
 
-  function waitForWeekChange(previousDateLabel, maxWaitMs = 5000) {
+  function waitForWeekChange(previousDateLabel, maxWaitMs = 8000) {
     return new Promise((resolve) => {
       const interval = 300;
       let elapsed = 0;
@@ -168,7 +168,7 @@
   // Wait until the number of shift cards on the page stops changing.
   // This is more reliable than a fixed delay — some weeks render faster,
   // some slower, and weeks with no shifts would still wait unnecessarily.
-  async function waitForShiftsStable(maxWaitMs = 6000) {
+  async function waitForShiftsStable(maxWaitMs = 10000) {
     const pollMs = 300;
     const stableThresholdMs = 1200; // card count must be unchanged for this long
     // Brief initial pause so Teams has time to begin fetching data for the new
