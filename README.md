@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.2
+- Chrome: port iCloud putEvent retry logic (was Firefox-only)
+
 ### v1.25.1
 - Replace fixed 500ms per-week pause with a smart wait (up to 1500ms) that exits as soon as shift cards appear
 
