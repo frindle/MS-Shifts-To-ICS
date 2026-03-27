@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.1
+- Replace fixed 500ms per-week pause with a smart wait (up to 1500ms) that exits as soon as shift cards appear
+
 ### v1.25
 - Increased week-load timeouts: shifts-stable wait raised to 10s max, week-change wait to 8s (both still exit early as soon as content is ready)
 

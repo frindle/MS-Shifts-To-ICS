@@ -171,10 +171,15 @@
   async function waitForShiftsStable(maxWaitMs = 10000) {
     const pollMs = 300;
     const stableThresholdMs = 1200; // card count must be unchanged for this long
-    // Brief initial pause so Teams has time to begin fetching data for the new
-    // week before we start checking card count. Without this, a 0-card state
-    // during the network request looks like a stable empty week.
-    await sleep(500);
+    // Wait for Teams to begin fetching data for the new week. Exit as soon as
+    // any shift cards appear; if none show up within 1500ms, proceed anyway so
+    // we don't mistake a slow-loading week for an empty one.
+    const initialDeadline = Date.now() + 1500;
+    while (Date.now() < initialDeadline) {
+      const count = document.querySelectorAll('div[aria-label^="Shift."], div[aria-label^="Open shift"]').length;
+      if (count > 0) break;
+      await sleep(100);
+    }
     let prevCount = -1;
     let stableFor = 0;
     const deadline = Date.now() + maxWaitMs;
