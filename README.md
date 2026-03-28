@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.3
+- Increased per-week stability threshold from 1.2s to 2s so shifts finish rendering before moving to the next week
+
 ### v1.25.2
 - Chrome: port iCloud putEvent retry logic (was Firefox-only)
 

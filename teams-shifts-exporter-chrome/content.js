@@ -170,7 +170,7 @@
   // some slower, and weeks with no shifts would still wait unnecessarily.
   async function waitForShiftsStable(maxWaitMs = 10000) {
     const pollMs = 300;
-    const stableThresholdMs = 1200; // card count must be unchanged for this long
+    const stableThresholdMs = 2000; // card count must be unchanged for this long
     // Wait for Teams to begin fetching data for the new week. Exit as soon as
     // any shift cards appear; if none show up within 1500ms, proceed anyway so
     // we don't mistake a slow-loading week for an empty one.
