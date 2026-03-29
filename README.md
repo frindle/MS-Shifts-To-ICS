@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.4
+- Fixed sync failure after "Almost there!" Continue click: wait for Teams sidebar to become interactive before re-navigating to Shifts (prevents clicking into an unresponsive page after the post-auth reload)
+
 ### v1.25.3
 - Increased per-week stability threshold from 1.2s to 2s so shifts finish rendering before moving to the next week
 

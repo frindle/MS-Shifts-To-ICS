@@ -79,9 +79,11 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
 
     // Teams may reload the page after the user accepts a first-run permissions
-    // dialog ("Almost there!"). Wait for the tab to settle, then re-inject and
-    // re-navigate so the scrape proceeds even if the content script was destroyed.
+    // dialog ("Almost there!"). Wait for the tab to settle and the sidebar to be
+    // interactive, then re-inject and re-navigate so the scrape proceeds even if
+    // the content script was destroyed.
     await waitForTabComplete(tab.id, 10000);
+    await waitForTeamsReady(tab.id);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }).catch(() => {});
     await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
     await sleep(2000);

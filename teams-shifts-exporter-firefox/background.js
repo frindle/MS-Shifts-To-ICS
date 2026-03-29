@@ -71,9 +71,11 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
 
     // Teams may reload the page after the user accepts a first-run permissions
-    // dialog ("Almost there!"). Wait for the tab to settle, then re-inject and
-    // re-navigate so the scrape proceeds even if the content script was destroyed.
+    // dialog ("Almost there!"). Wait for the tab to settle and the sidebar to be
+    // interactive, then re-inject and re-navigate so the scrape proceeds even if
+    // the content script was destroyed.
     await waitForTabComplete(tab.id, 10000);
+    await waitForTeamsReady(tab.id);
     await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: 0 }).catch(() => {});
     await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
     await sleep(2000);
@@ -367,6 +369,29 @@ async function waitForTabComplete(tabId, timeoutMs = 10000) {
     } catch {}
     await sleep(400);
   }
+}
+
+// Poll until Teams sidebar navigation elements are available in the top frame
+async function waitForTeamsReady(tabId, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const results = await browser.tabs.executeScript(tabId, {
+        frameId: 0,
+        code: `(function() {
+          return !!(
+            document.querySelector('[aria-label*="Shifts" i][role="button"]') ||
+            document.querySelector('[aria-label*="more" i][role="button"]') ||
+            document.querySelector('[aria-label*="Apps" i][role="button"]') ||
+            document.querySelector('button[aria-label^="Account manager for"]')
+          );
+        })();`,
+      });
+      if (results?.[0]) return;
+    } catch {}
+    await sleep(500);
+  }
+  throw new Error('Timed out waiting for Teams to load');
 }
 
 // Poll until the Shifts iframe (flw.teams.cloud.microsoft) appears, return its frame record
