@@ -411,23 +411,29 @@
       );
 
     if (!moreBtn) {
-      console.warn('[ShiftsExport] Could not find "more apps" button — ensure you are on Teams');
-      return false;
+      throw new Error('Could not find Teams sidebar — make sure you are on the Teams home page');
     }
 
     moreBtn.click();
-    await sleep(800);
 
-    // Find Shifts in the flyout menu
-    const shiftsItem = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="button"], li')).find(
-      (el) => /^shifts$/i.test(el.textContent.trim()) || /^shifts$/i.test(el.getAttribute('aria-label') || '')
-    );
+    // Wait up to 2s for the flyout to appear before searching for Shifts
+    const flyoutDeadline = Date.now() + 2000;
+    let shiftsItem = null;
+    while (Date.now() < flyoutDeadline) {
+      shiftsItem = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="button"], li')).find((el) => {
+        const text = el.textContent.trim();
+        const aria = el.getAttribute('aria-label') || '';
+        // Match "Shifts" as a whole word — avoids false matches on "Your shifts"
+        return /\bshifts\b/i.test(aria) || /^shifts$/i.test(text) || /^shifts\b/i.test(text);
+      });
+      if (shiftsItem) break;
+      await sleep(200);
+    }
 
     if (!shiftsItem) {
-      console.warn('[ShiftsExport] Shifts not found in more-apps menu');
       // Dismiss the menu
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      return false;
+      throw new Error('Shifts was not found in the Teams "More apps" menu. Please pin Shifts to your sidebar and try again.');
     }
 
     shiftsItem.click();

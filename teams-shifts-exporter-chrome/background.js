@@ -97,7 +97,8 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await checkCancelled();
     setProgress('Navigating to Shifts...', 8);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
-    await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
+    const navResult1 = await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
+    if (navResult1 && !navResult1.success) throw new Error(navResult1.error || 'Could not navigate to Shifts');
 
     // Teams may reload the page after the user accepts a first-run permissions
     // dialog ("Almost there!"). Wait for the tab to settle and the sidebar to be
@@ -106,7 +107,8 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await waitForTabComplete(tab.id, 10000);
     await waitForTeamsReady(tab.id);
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }).catch(() => {});
-    await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => {});
+    const navResult2 = await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
+    if (navResult2 && !navResult2.success) throw new Error(navResult2.error || 'Could not navigate to Shifts');
     await sleep(2000);
 
     // Step 2: wait for the Shifts iframe to appear and get its frameId

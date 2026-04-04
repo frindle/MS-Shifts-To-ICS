@@ -33,6 +33,10 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.6
+- Fixed sync failure when Shifts is not pinned to the left sidebar: flyout now waits up to 2s for the menu to render, uses broader item matching, and reports a clear error instead of silently timing out
+- Navigation errors (sidebar not found, Shifts not in menu) now surface immediately with a descriptive message
+
 ### v1.25.5
 - Added 90-second watchdog: if no progress is made for 90 seconds the sync is automatically cancelled and an error is reported, preventing silent hangs
 
