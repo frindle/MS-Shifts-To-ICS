@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.25.5
+- Added 90-second watchdog: if no progress is made for 90 seconds the sync is automatically cancelled and an error is reported, preventing silent hangs
+
 ### v1.25.4
 - Fixed sync failure after "Almost there!" Continue click: wait for Teams sidebar to become interactive before re-navigating to Shifts (prevents clicking into an unresponsive page after the post-auth reload)
 

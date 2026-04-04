@@ -6,8 +6,8 @@ import json, time, uuid, hashlib, hmac, base64, urllib.request, urllib.error, sy
 JWT_ISSUER = 'user:19808830:875'
 JWT_SECRET = '99e0c907dfb2f5f17d82c7b8c3ba3d9cb44e686ea10a15c3dff6384dbfa79f16'
 ADDON_ID = '2993651'
-XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.25.4.xpi'
-OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.25.4-signed.xpi'
+XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.25.5.xpi'
+OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.25.5-signed.xpi'
 BASE = 'https://addons.mozilla.org/api/v5'
 
 
@@ -87,7 +87,7 @@ def download(url, dest):
         f.write(r.read())
 
 
-TARGET_VERSION = '1.25.4'
+TARGET_VERSION = '1.25.5'
 print(f'=== AMO: Upload, sign, and download v{TARGET_VERSION} ===')
 
 # 1. Upload XPI

@@ -50,10 +50,31 @@ async function checkCancelled() {
   if (syncCancelled) throw new Error('Sync cancelled');
 }
 
+// Watchdog: if syncPercent doesn't change for idleMs, cancel the sync automatically
+function startWatchdog(idleMs = 90000) {
+  let lastPercent = -1;
+  let lastChange = Date.now();
+  const interval = setInterval(async () => {
+    try {
+      const data = await chrome.storage.local.get(['syncRunning', 'syncPercent']);
+      if (!data.syncRunning) { clearInterval(interval); return; }
+      if (data.syncPercent !== lastPercent) {
+        lastPercent = data.syncPercent;
+        lastChange = Date.now();
+      } else if (Date.now() - lastChange >= idleMs) {
+        clearInterval(interval);
+        await chrome.storage.local.set({ syncCancelled: true });
+      }
+    } catch {}
+  }, 5000);
+  return () => clearInterval(interval);
+}
+
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
   let scrapeTabId = null;
+  const stopWatchdog = startWatchdog(90000);
   try {
     chrome.storage.local.set({ lastError: null });
     setProgress('Opening Teams...', 2);
@@ -182,6 +203,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     }
     return { success: false, error: errMsg };
   } finally {
+    stopWatchdog();
     clearProgress();
     if (scrapeTabId) {
       try { await chrome.tabs.remove(scrapeTabId); } catch {}
