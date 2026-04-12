@@ -33,6 +33,11 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.26
+- Added TDO (Time off) support: TDO blocks are now exported as all-day calendar events with any notes included in the description
+- Fixed shift notes containing newlines (e.g. traded shifts with multi-line trade notes) being silently dropped due to regex not matching across line breaks — notes now appear in the event description
+- Regex hardened to handle overnight shifts where Teams includes a weekday prefix before the end date, and non-standard theme names
+
 ### v1.25.6
 - Fixed sync failure when Shifts is not pinned to the left sidebar: flyout now waits up to 2s for the menu to render, uses broader item matching, and reports a clear error instead of silently timing out
 - Navigation errors (sidebar not found, Shifts not in menu) now surface immediately with a descriptive message

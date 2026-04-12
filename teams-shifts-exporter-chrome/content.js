@@ -105,6 +105,31 @@
     return d;
   }
 
+  // Build a Date at midnight from a date string — used for all-day events (e.g. TDOs)
+  function buildDateOnly(dateStr, referenceYear) {
+    let month, day;
+    let m = dateStr.match(/(\d{1,2})\/(\d{1,2})/);
+    if (m) {
+      month = parseInt(m[1], 10) - 1;
+      day   = parseInt(m[2], 10);
+    } else {
+      const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      m = dateStr.match(/([A-Za-z]+)\s+(\d{1,2})/);
+      if (m) {
+        month = months.indexOf(m[1].toLowerCase().slice(0, 3));
+        day   = parseInt(m[2], 10);
+      }
+    }
+    if (month === undefined || day === undefined || month < 0) return null;
+    const d = new Date(referenceYear, month, day, 0, 0, 0);
+    const now = new Date();
+    if (d < now) {
+      const diffMonths = (now - d) / (1000 * 60 * 60 * 24 * 30);
+      if (diffMonths > 6) d.setFullYear(d.getFullYear() + 1);
+    }
+    return d;
+  }
+
   // Format a Date to ICS DTSTART/DTEND format (local time with TZID approach, or UTC)
   function toICSDate(date) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -285,10 +310,15 @@
         // Full format:
       // "Shift. {weekday}, {Month} {day}, {start} - {end} {name}. {theme}. {notes}. Press Enter key..."
       // Notes segment is empty ("  .") when there are no notes.
+      // Overnight shifts may include an end date like "Tue, Apr 15, " before the end time.
+      // The /s flag (dotall) is needed because shift notes can contain newlines.
       const match = ariaLabel.match(
-        /Shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
+        /Shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:(?:\w+,\s+)?\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\S+\.\s*(.*?)\.\s*Press Enter/is
       );
-      if (!match) continue;
+      if (!match) {
+        console.warn('[ShiftsExport] Shift card did not match regex:', ariaLabel);
+        continue;
+      }
 
       const dateStr  = match[1].trim(); // "Aug 6"
       const startStr = match[2].trim(); // "12:45 PM"
@@ -307,9 +337,12 @@
       // Open shift format (similar to regular shifts):
       // "Open shift. {weekday}, {Month} {day}, {start} - {end} {name}. {theme}. {notes}. Press Enter key..."
       const match = ariaLabel.match(
-        /Open\s+shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\w+\.\s*(.*?)\.\s*Press Enter/i
+        /Open\s+shift\.\s+\w+,\s+(\w+\s+\d+),\s+(\d{1,2}(?::\d{2})?\s*[AP]M)\s*-\s*(?:(?:\w+,\s+)?\w+\s+\d+,\s+)?(\d{1,2}(?::\d{2})?\s*[AP]M)\s+(.*?)\.\s*\S+\.\s*(.*?)\.\s*Press Enter/is
       );
-      if (!match) continue;
+      if (!match) {
+        console.warn('[ShiftsExport] Open shift card did not match regex:', ariaLabel);
+        continue;
+      }
 
       const dateStr  = match[1].trim();
       const startStr = match[2].trim();
@@ -318,6 +351,23 @@
       const notes    = match[5].trim();
 
       shifts.push({ summary, notes, dateStr, startStr, endStr, referenceYear: year, isOpenShift: true });
+    }
+
+    // Scrape TDO (Time off) cards — these are all-day events
+    // Format: "Time off, TDO. {weekday}, {Month} {day} . {theme}. {notes}. Press Enter key..."
+    const tdoCards = Array.from(document.querySelectorAll('div[aria-label^="Time off"]'));
+    for (const card of tdoCards) {
+      const ariaLabel = card.getAttribute('aria-label') || '';
+      const match = ariaLabel.match(
+        /Time\s+off[^.]*\.\s+\w+,\s+(\w+\s+\d+)\s*\.\s*\S+\.\s*(.*?)\.\s*Press Enter/is
+      );
+      if (!match) {
+        console.warn('[ShiftsExport] TDO card did not match regex:', ariaLabel);
+        continue;
+      }
+      const dateStr = match[1].trim();
+      const notes   = match[2].trim();
+      shifts.push({ summary: 'TDO', notes, dateStr, referenceYear: year, isAllDay: true, isOpenShift: false });
     }
 
     return shifts;
@@ -570,6 +620,15 @@
       const referenceYear = new Date().getFullYear();
 
       for (const raw of allRawShifts) {
+        if (raw.isAllDay) {
+          const start = buildDateOnly(raw.dateStr, referenceYear);
+          if (!start) continue;
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          events.push({ summary: raw.summary, notes: raw.notes || '', start, end, isOpenShift: false, isAllDay: true });
+          continue;
+        }
+
         const start = buildDate(raw.dateStr, raw.startStr, referenceYear);
         const end = buildDate(raw.dateStr, raw.endStr, referenceYear);
         if (!start || !end) continue;
@@ -601,12 +660,22 @@
     events.forEach((ev, i) => {
       const uid = `teams-shift-${ev.start.getTime()}-${i}@shifts-export`;
       const summaryText = ev.isOpenShift ? `OPEN: ${ev.summary}` : ev.summary;
+      const pad = (n) => String(n).padStart(2, '0');
+      const dateOnly = (d) => d.getFullYear().toString() + pad(d.getMonth() + 1) + pad(d.getDate());
       lines.push('BEGIN:VEVENT');
       lines.push(`UID:${uid}`);
       lines.push(`DTSTAMP:${toICSDate(new Date())}`);
-      lines.push(`DTSTART:${toICSDate(ev.start)}`);
-      lines.push(`DTEND:${toICSDate(ev.end)}`);
+      if (ev.isAllDay) {
+        lines.push(`DTSTART;VALUE=DATE:${dateOnly(ev.start)}`);
+        lines.push(`DTEND;VALUE=DATE:${dateOnly(ev.end)}`);
+      } else {
+        lines.push(`DTSTART:${toICSDate(ev.start)}`);
+        lines.push(`DTEND:${toICSDate(ev.end)}`);
+      }
       lines.push(`SUMMARY:${summaryText.replace(/,/g, '\\,').replace(/\n/g, '\\n')}`);
+      if (ev.notes) {
+        lines.push(`DESCRIPTION:${ev.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
+      }
       if (ev.isOpenShift) {
         lines.push('CATEGORIES:Open Shift');
       }
@@ -645,6 +714,7 @@
             startMs: e.start.getTime(),
             endMs:   e.end.getTime(),
             isOpenShift: !!e.isOpenShift,
+            isAllDay:    !!e.isAllDay,
           }));
           sendResponse({ success: true, ics, count: events.length, events: serializable });
         })

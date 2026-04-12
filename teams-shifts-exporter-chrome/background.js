@@ -337,8 +337,13 @@ function generateICS(events) {
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:teams-shift-${ev.startMs}-${i}@shifts-export`);
     lines.push(`DTSTAMP:${toICSDate(Date.now())}`);
-    lines.push(`DTSTART:${toICSDate(ev.startMs)}`);
-    lines.push(`DTEND:${toICSDate(ev.endMs)}`);
+    if (ev.isAllDay) {
+      lines.push(`DTSTART;VALUE=DATE:${toICSDateOnlyStr(ev.startMs)}`);
+      lines.push(`DTEND;VALUE=DATE:${toICSDateOnlyStr(ev.endMs)}`);
+    } else {
+      lines.push(`DTSTART:${toICSDate(ev.startMs)}`);
+      lines.push(`DTEND:${toICSDate(ev.endMs)}`);
+    }
     lines.push(`SUMMARY:${summaryText.replace(/,/g, '\\,').replace(/\n/g, '\\n')}`);
     if (ev.notes) {
       lines.push(`DESCRIPTION:${ev.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
@@ -470,6 +475,13 @@ async function waitForShiftsReady(tabId, frameId, timeoutMs = 20000) {
 
 // ─── iCloud CalDAV Sync ───────────────────────────────────────────────────────
 
+// Date-only ICS formatter for all-day events (no time component)
+function toICSDateOnlyStr(ms) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const d = new Date(ms);
+  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+}
+
 // Shared ICS date formatter used by both generateICS and the CalDAV client
 function toICSDateStr(ms) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -497,8 +509,9 @@ function buildSingleEventICS(event, uid) {
     'BEGIN:VEVENT',
     `UID:${uid}@teams-shifts-export`,
     `DTSTAMP:${toICSDateStr(Date.now())}`,
-    `DTSTART:${toICSDateStr(event.startMs)}`,
-    `DTEND:${toICSDateStr(event.endMs)}`,
+    ...(event.isAllDay
+      ? [`DTSTART;VALUE=DATE:${toICSDateOnlyStr(event.startMs)}`, `DTEND;VALUE=DATE:${toICSDateOnlyStr(event.endMs)}`]
+      : [`DTSTART:${toICSDateStr(event.startMs)}`, `DTEND:${toICSDateStr(event.endMs)}`]),
     `SUMMARY:${summaryText.replace(/,/g, '\\,').replace(/\n/g, '\\n')}`,
   ];
   if (event.notes) {
