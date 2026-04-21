@@ -319,19 +319,60 @@
 
     // If userName set, try to scope to that member's row
     if (userName) {
-      const memberCell = Array.from(document.querySelectorAll('div[aria-label]')).find((el) =>
-        el.getAttribute('aria-label').toLowerCase().includes(`member name: ${userName.toLowerCase()}`)
-      );
-      if (memberCell) {
-        // Walk up to find the row container, then search within it
-        let row = memberCell.parentElement;
-        for (let i = 0; i < 4; i++) {
-          const rowShifts = row ? row.querySelectorAll('div[aria-label^="Shift."]') : [];
-          if (rowShifts.length > 0) {
-            shiftCards = Array.from(rowShifts);
-            break;
+      const name = userName.trim().toLowerCase();
+
+      // Strategy 1: find a [role="row"] that contains the user's name in a header cell
+      const allRows = Array.from(document.querySelectorAll('[role="row"]'));
+      const userRow = allRows.find((row) => {
+        // Only consider rows that have shift cards — skip group header rows
+        if (!row.querySelector('div[aria-label^="Shift."]')) return false;
+        const headerText = Array.from(row.querySelectorAll('[aria-label]'))
+          .map((el) => el.getAttribute('aria-label').toLowerCase())
+          .join(' ');
+        return headerText.includes(name);
+      });
+
+      if (userRow) {
+        shiftCards = Array.from(userRow.querySelectorAll('div[aria-label^="Shift."]'));
+      } else {
+        // Strategy 2: find a member cell by aria-label and walk up to its row container
+        const memberCell = Array.from(document.querySelectorAll('div[aria-label]')).find((el) => {
+          const aria = el.getAttribute('aria-label').toLowerCase();
+          return aria.includes(`member name: ${name}`) ||
+                 aria === name ||
+                 (aria.includes(name) && /\b(member|row|user)\b/.test(aria));
+        });
+
+        if (memberCell) {
+          // Walk up, but stop at the smallest container that holds shifts yet only
+          // one member cell — avoids capturing an outer group container.
+          let row = memberCell.parentElement;
+          for (let i = 0; i < 6; i++) {
+            if (!row) break;
+            const rowShifts = row.querySelectorAll('div[aria-label^="Shift."]');
+            if (rowShifts.length > 0) {
+              const memberCellsInRow = Array.from(row.querySelectorAll('div[aria-label]')).filter(
+                (el) => /member\s+name:/i.test(el.getAttribute('aria-label') || '')
+              );
+              if (memberCellsInRow.length <= 1) {
+                shiftCards = Array.from(rowShifts);
+                break;
+              }
+            }
+            row = row?.parentElement;
           }
-          row = row?.parentElement;
+        } else {
+          // Could not scope to the user's row.  Check whether the page is showing
+          // a multi-user view.  If so, returning all cards would silently include
+          // other people's shifts — safer to return nothing and warn.
+          const visibleMemberCells = Array.from(document.querySelectorAll('div[aria-label]')).filter(
+            (el) => /member\s+name:/i.test(el.getAttribute('aria-label') || '')
+          );
+          if (visibleMemberCells.length > 1) {
+            console.warn('[ShiftsExport] Full schedule view detected but could not find row for user:', userName, '— skipping week to avoid capturing other people\'s shifts');
+            return shifts; // return empty for this week
+          }
+          // Single-user view (e.g. "Your shifts") — proceed with all visible cards
         }
       }
     }
@@ -521,7 +562,12 @@
       if (match) {
         match.click();
         await sleep(1500);
-        return true;
+        // Verify the view actually switched — in "Your shifts" / "My schedule" there
+        // should be at most one visible member row (the current user's own row).
+        // If multiple member rows are still present, the click didn't change the view.
+        const memberCells = document.querySelectorAll('div[aria-label*="member name:" i]');
+        if (memberCells.length <= 1) return true;
+        // Fall through and try the next selector
       }
     }
     return false;
