@@ -506,18 +506,24 @@
   // Open the View dropdown and click an option matching `labelPattern`.
   // Returns true if the option was found and clicked.
   async function selectViewOption(labelPattern) {
-    // Find the View button
-    const viewBtn = Array.from(document.querySelectorAll('button')).find((el) =>
-      /^view$/i.test(el.textContent.trim()) || /^view$/i.test(el.getAttribute('aria-label') || '')
-    );
+    // Find the View button — text may include icon characters so use includes not exact match
+    const viewBtn = Array.from(document.querySelectorAll('button, [role="button"]')).find((el) => {
+      const text = el.textContent.trim();
+      const aria = el.getAttribute('aria-label') || '';
+      return /\bview\b/i.test(text) || /\bview\b/i.test(aria);
+    });
+    console.info('[ShiftsExport] View button:', viewBtn?.textContent?.trim() ?? 'NOT FOUND');
     if (!viewBtn) return false;
 
     viewBtn.click();
-    await sleep(500);
+    await sleep(600);
 
-    const option = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemradio"], button, li')).find((el) =>
-      labelPattern.test(el.textContent.trim()) || labelPattern.test(el.getAttribute('aria-label') || '')
-    );
+    const option = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemradio"], [role="button"], button, li')).find((el) => {
+      const text = el.textContent.trim();
+      const aria = el.getAttribute('aria-label') || '';
+      return labelPattern.test(text) || labelPattern.test(aria);
+    });
+    console.info('[ShiftsExport] View option for', labelPattern, ':', option?.textContent?.trim() ?? 'NOT FOUND');
 
     if (!option) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -537,7 +543,7 @@
     if (memberCells.length <= 1) return 'already';
 
     // Try View dropdown → "Your shifts"
-    if (await selectViewOption(/^your\s+shifts$/i)) return 'view-menu';
+    if (await selectViewOption(/your\s+shifts/i)) return 'view-menu';
 
     // Fallback: legacy tab selectors
     const selectors = [
@@ -567,7 +573,7 @@
 
   // Restore "Team shifts" view via the View dropdown.
   async function restoreTeamView() {
-    await selectViewOption(/^team\s+shifts$/i);
+    await selectViewOption(/team\s+shifts/i);
   }
 
   // ─── Ensure Weekly View ──────────────────────────────────────────────────
