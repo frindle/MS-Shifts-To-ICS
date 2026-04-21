@@ -501,28 +501,55 @@
     return true;
   }
 
-  // ─── "My Schedule" Navigation ─────────────────────────────────────────────
+  // ─── View Switching (Your shifts / Team shifts) ──────────────────────────
 
-  // Try to click the "Your shifts" (or legacy "My schedule") tab so we only
-  // see the current user's shifts.  Returns true if successfully switched.
+  // Open the View dropdown and click an option matching `labelPattern`.
+  // Returns true if the option was found and clicked.
+  async function selectViewOption(labelPattern) {
+    // Find the View button
+    const viewBtn = Array.from(document.querySelectorAll('button')).find((el) =>
+      /^view$/i.test(el.textContent.trim()) || /^view$/i.test(el.getAttribute('aria-label') || '')
+    );
+    if (!viewBtn) return false;
+
+    viewBtn.click();
+    await sleep(500);
+
+    const option = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="menuitemradio"], button, li')).find((el) =>
+      labelPattern.test(el.textContent.trim()) || labelPattern.test(el.getAttribute('aria-label') || '')
+    );
+
+    if (!option) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return false;
+    }
+
+    option.click();
+    await sleep(1500);
+    return true;
+  }
+
+  // Switch to "Your shifts" view. Returns 'view-menu' if switched via View dropdown,
+  // 'already' if already in single-user view, or false if unable to switch.
   async function switchToMySchedule() {
+    // Already in single-user view?
+    const memberCells = document.querySelectorAll('div[aria-label*="member name:" i]');
+    if (memberCells.length <= 1) return 'already';
+
+    // Try View dropdown → "Your shifts"
+    if (await selectViewOption(/^your\s+shifts$/i)) return 'view-menu';
+
+    // Fallback: legacy tab selectors
     const selectors = [
-      // New Teams Shifts uses "Your shifts"
       'button[aria-label*="Your shifts" i]',
       '[data-tid="your-shifts-tab"]',
       '[data-tid="yourShifts-tab"]',
-      // Legacy "My schedule" selectors
       '[data-tid="my-schedule-tab"]',
       '[data-tid="mySchedule-tab"]',
-      '[data-tid="shifts-my-schedule"]',
       'button[aria-label*="my schedule" i]',
-      'button[role="tab"][aria-label*="my" i]',
-      '[role="tab"]',
     ];
-
     for (const sel of selectors) {
-      const els = Array.from(document.querySelectorAll(sel));
-      const match = els.find((el) => {
+      const match = Array.from(document.querySelectorAll(sel)).find((el) => {
         const text = el.textContent || '';
         const aria = el.getAttribute('aria-label') || '';
         return /your\s+shifts/i.test(text) || /your\s+shifts/i.test(aria) ||
@@ -531,15 +558,16 @@
       if (match) {
         match.click();
         await sleep(1500);
-        // Verify the view actually switched — in "Your shifts" / "My schedule" there
-        // should be at most one visible member row (the current user's own row).
-        // If multiple member rows are still present, the click didn't change the view.
-        const memberCells = document.querySelectorAll('div[aria-label*="member name:" i]');
-        if (memberCells.length <= 1) return true;
-        // Fall through and try the next selector
+        const cells = document.querySelectorAll('div[aria-label*="member name:" i]');
+        if (cells.length <= 1) return 'tab';
       }
     }
     return false;
+  }
+
+  // Restore "Team shifts" view via the View dropdown.
+  async function restoreTeamView() {
+    await selectViewOption(/^team\s+shifts$/i);
   }
 
   // ─── Ensure Weekly View ──────────────────────────────────────────────────
@@ -600,10 +628,10 @@
       // Step 1: navigate to Shifts (only needed in top frame; skip inside iframe)
       if (window === window.top) await navigateToShifts();
 
-      // Step 2: try to switch to "Your shifts" (or legacy "My schedule") view
-      const switched = await switchToMySchedule();
-      if (!switched && userName) {
-        console.info('[ShiftsExport] Could not find "Your shifts" tab — will filter by name:', userName);
+      // Step 2: switch to "Your shifts" view; remember whether we switched so we can restore
+      const viewSwitched = await switchToMySchedule();
+      if (!viewSwitched && userName) {
+        console.info('[ShiftsExport] Could not switch to Your shifts — will filter by name:', userName);
       }
 
       // Step 2b: ensure we're in weekly view (scraper relies on week-by-week navigation)
@@ -688,6 +716,10 @@
       return events;
     } finally {
       overlay.remove();
+      // Restore Team shifts view if we switched away from it
+      if (viewSwitched && viewSwitched !== 'already') {
+        await restoreTeamView();
+      }
     }
   }
 
