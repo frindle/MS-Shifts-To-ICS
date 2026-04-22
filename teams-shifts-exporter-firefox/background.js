@@ -225,7 +225,8 @@ async function fetchShifts() {
   const futureCount = events.filter(e => e.endMs > now).length;
   const latest = events.length ? new Date(Math.max(...events.map(e => e.endMs))).toDateString() : 'none';
   if (futureCount === 0) {
-    throw new Error(`API returned ${events.length} shifts, all in the past. Latest: ${latest}. Requested until: ${endTime.toDateString()}. Raw shifts in response: ${(data.shifts||[]).length}, openShifts: ${(data.openShifts||[]).length}`);
+    const s = (data.shifts||[])[0];
+    throw new Error(`Parse failed: 0 parsed from ${(data.shifts||[]).length} raw. Sample keys: ${Object.keys(s||{}).join(',')} sharedShift keys: ${Object.keys(s?.sharedShift||{}).join(',')} sample: ${JSON.stringify(s).slice(0,500)}`);
   }
 
   return events;
