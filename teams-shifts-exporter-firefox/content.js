@@ -305,6 +305,7 @@
     }
 
     if (msg.action === 'SCRAPE_AND_EXPORT') {
+      if (!window.location.hostname.includes('flw.teams.cloud.microsoft')) return;
       scrape({ userName: msg.userName || null })
         .then((events) => {
           const ics = generateICS(events);
