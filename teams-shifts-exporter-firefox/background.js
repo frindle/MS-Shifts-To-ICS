@@ -2,6 +2,28 @@
 // Uses browser.* promises natively; chrome.* also works via Firefox's compatibility shim.
 
 const ALARM_NAME = 'daily-shifts-export';
+
+// ─── Capture Teams auth headers via webRequest ────────────────────────────────
+
+let capturedShiftsHeaders = null;
+let capturedApiBase = null;
+
+browser.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!details.requestHeaders) return;
+    const hasAuth = details.requestHeaders.some((h) => h.name.toLowerCase() === 'authorization');
+    if (hasAuth) {
+      capturedShiftsHeaders = [...details.requestHeaders];
+      try {
+        const url = new URL(details.url);
+        const region = url.pathname.split('/').filter(Boolean)[0];
+        if (region) capturedApiBase = `${url.origin}/${region}/api`;
+      } catch {}
+    }
+  },
+  { urls: ['https://flw.teams.cloud.microsoft/*'] },
+  ['requestHeaders']
+);
 const TEAMS_SHIFTS_URL = 'https://teams.cloud.microsoft/';
 const OUTLOOK_CALENDAR_URL = 'https://outlook.office.com/calendar/view/month';
 
@@ -73,92 +95,99 @@ function startWatchdog(idleMs = 90000) {
 
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
+function getTargetEndDate() {
+  const now = new Date();
+  const twoWeeksFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const year = now.getFullYear();
+  const cands = [
+    new Date(year, 1, 28), new Date(year, 7, 31),
+    new Date(year+1, 1, 28), new Date(year+1, 7, 31),
+    new Date(year+2, 1, 28),
+  ];
+  cands.forEach((d, i) => {
+    if (d.getMonth() === 1) {
+      const ly = d.getFullYear();
+      if ((ly % 4 === 0 && ly % 100 !== 0) || ly % 400 === 0) cands[i] = new Date(ly, 1, 29);
+    }
+  });
+  const future = cands.filter((d) => d > now).sort((a, b) => a - b);
+  return (future.length > 1 && future[0] <= twoWeeksFromNow) ? future[1] : future[0];
+}
+
+async function hasShiftsFrame(tabId) {
+  try {
+    const frames = await browser.webNavigation.getAllFrames({ tabId });
+    return frames.some((f) => f.url && f.url.includes('flw.teams.cloud.microsoft'));
+  } catch {
+    return false;
+  }
+}
+
+async function ensureShiftsFrameLoaded() {
+  const tabs = await browser.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (!tabs.length) return false;
+  for (const tab of tabs) {
+    if (await hasShiftsFrame(tab.id)) return true;
+    try {
+      await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        if (await hasShiftsFrame(tab.id)) return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+async function fetchShiftsFromContent() {
+  if (!capturedShiftsHeaders) {
+    await ensureShiftsFrameLoaded();
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      if (capturedShiftsHeaders) break;
+      await sleep(500);
+    }
+  }
+
+  if (!capturedShiftsHeaders || !capturedApiBase) {
+    throw new Error('Could not capture Teams auth — open Teams and navigate to Shifts first.');
+  }
+
+  const authHeaders = {};
+  for (const h of capturedShiftsHeaders) authHeaders[h.name] = h.value;
+
+  const tabs = await browser.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (!tabs.length) throw new Error('Open Teams in a browser tab first.');
+
+  for (const tab of tabs) {
+    if (!await hasShiftsFrame(tab.id)) continue;
+    const response = await browser.tabs.sendMessage(tab.id, {
+      action: 'SCRAPE_AND_EXPORT',
+      authHeaders,
+    });
+    if (response?.success) return response.events;
+    throw new Error(response?.error || 'No response from content script');
+  }
+
+  throw new Error('Navigate to Shifts in Teams, then sync again.');
+}
+
 async function runExport({ auto = false, skipICloud = false } = {}) {
   const { syncRunning } = await browser.storage.local.get('syncRunning');
   if (syncRunning) return { success: false, error: 'Sync already in progress' };
 
-  let scrapeWinId = null;
   const stopWatchdog = startWatchdog(90000);
   try {
     browser.storage.local.set({ lastError: null });
-    setProgress('Opening Teams...', 2);
-    const win = await browser.windows.create({ url: TEAMS_SHIFTS_URL, focused: false, left: -5000, top: 0, width: 1280, height: 900 });
-    scrapeWinId = win.id;
-    const tab = win.tabs[0];
-    await sleep(4000); // give Teams time to start loading
-
-    // Step 1: inject into top frame and navigate to Shifts
-    await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: 0 });
-    const navResult1 = await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
-    if (navResult1 && !navResult1.success) throw new Error(navResult1.error || 'Could not navigate to Shifts');
-
-    // Teams may reload the page after the user accepts a first-run permissions
-    // dialog ("Almost there!"). Wait for the tab to settle and the sidebar to be
-    // interactive, then re-inject and re-navigate so the scrape proceeds even if
-    // the content script was destroyed.
-    await waitForTabComplete(tab.id, 10000);
-    await waitForTeamsReady(tab.id);
-    await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: 0 }).catch(() => {});
-    const navResult2 = await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
-    if (navResult2 && !navResult2.success) throw new Error(navResult2.error || 'Could not navigate to Shifts');
-    await sleep(2000);
-
-    // Step 2: wait for the Shifts iframe to appear and get its frameId
-    const shiftsFrame = await waitForShiftsFrame(tab.id);
+    setProgress('Fetching shifts...', 10);
     await checkCancelled();
-    setProgress('Loading Shifts...', 14);
 
-    // Step 3: inject content script into the iframe and wait for Shifts UI to render
-    await browser.tabs.executeScript(tab.id, { file: 'content.js', frameId: shiftsFrame.frameId });
-    await waitForShiftsReady(tab.id, shiftsFrame.frameId);
-    await checkCancelled();
-    setProgress('Starting scrape...', 18);
-
-    // Auto-detect user name from Teams top frame ("Account manager for ...")
-    let { userName } = await browser.storage.local.get('userName');
-    try {
-      const nameResults = await browser.tabs.executeScript(tab.id, {
-        frameId: 0,
-        code: `(function() {
-          const btn = document.querySelector('button[aria-label^="Account manager for"]');
-          if (btn) {
-            const match = btn.getAttribute('aria-label').match(/Account manager for (.+)/);
-            return match ? match[1] : null;
-          }
-          return null;
-        })();`,
-      });
-      const detectedName = nameResults?.[0];
-      if (detectedName) {
-        userName = detectedName;
-        await browser.storage.local.set({ userName: detectedName, userNameAutoDetected: true });
-        console.info('[ShiftsExport] Auto-detected user name:', detectedName);
-      }
-    } catch (e) {
-      console.info('[ShiftsExport] Name auto-detect failed, using saved name:', userName);
-    }
-
-    const response = await browser.tabs.sendMessage(
-      tab.id,
-      { action: 'SCRAPE_AND_EXPORT', userName: userName || null },
-      { frameId: shiftsFrame.frameId }
-    );
-
-    if (!response || !response.success) {
-      throw new Error(response?.error || 'Scrape failed');
-    }
+    let events = await fetchShiftsFromContent();
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
-    // Close the scrape window now — no need to keep it open for iCloud/Outlook sync
-    if (scrapeWinId) {
-      try { await browser.windows.remove(scrapeWinId); } catch {}
-      scrapeWinId = null;
-    }
-
-    // Filter open shifts based on user settings
     const { includeOpenShifts } = await browser.storage.local.get('includeOpenShifts');
-    let events = response.events || [];
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
     } else {
@@ -166,46 +195,36 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
       events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
     }
 
-    // Merge freshly scraped events with stored history, then rebuild ICS
     const mergedEvents = await mergeWithHistory(events);
     const mergedICS = generateICS(mergedEvents);
 
-    // Download ICS to Downloads folder
-    const filename = buildFilename();
-    await downloadICS(mergedICS, filename);
+    try {
+      await downloadICS(mergedICS, buildFilename());
+    } catch (dlErr) {
+      console.warn('[ShiftsExport] ICS download error (non-fatal):', dlErr);
+    }
 
-    // Import to Outlook Web if the setting is enabled
     const { importToOutlook } = await browser.storage.local.get('importToOutlook');
     let outlookResult = null;
-    if (importToOutlook) {
-      outlookResult = await importToOutlookWeb(mergedICS, auto);
-    }
+    if (importToOutlook) outlookResult = await importToOutlookWeb(mergedICS, auto);
 
-    // Sync to iCloud Calendar via CalDAV if enabled (skipped when CLEAR_AND_REIMPORT handles it)
     const { importToiCloud } = await browser.storage.local.get('importToiCloud');
     let icloudResult = null;
-    if (importToiCloud && !skipICloud) {
-      icloudResult = await syncToiCloud(mergedEvents);
-    }
+    if (importToiCloud && !skipICloud) icloudResult = await syncToiCloud(mergedEvents);
 
-    // Update last export time and store ICS for clear & re-import
     await browser.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
-
     clearProgress();
     browser.storage.local.set({ lastError: null });
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
-    const errMsg = err.message || 'Unknown error';
+    const errMsg = err?.message || (typeof err === 'string' ? err : '') || err?.name || 'Unknown error';
     browser.storage.local.set({ lastError: errMsg });
     clearProgress();
     return { success: false, error: errMsg };
   } finally {
     stopWatchdog();
     clearProgress();
-    if (scrapeWinId) {
-      try { await browser.windows.remove(scrapeWinId); } catch {}
-    }
   }
 }
 

@@ -1,6 +1,28 @@
 // background.js — service worker
 
 const ALARM_NAME = 'daily-shifts-export';
+
+// ─── Capture Teams auth headers via webRequest ────────────────────────────────
+
+let capturedShiftsHeaders = null;
+let capturedApiBase = null;
+
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (!details.requestHeaders) return;
+    const hasAuth = details.requestHeaders.some((h) => h.name.toLowerCase() === 'authorization');
+    if (hasAuth) {
+      capturedShiftsHeaders = [...details.requestHeaders];
+      try {
+        const url = new URL(details.url);
+        const region = url.pathname.split('/').filter(Boolean)[0];
+        if (region) capturedApiBase = `${url.origin}/${region}/api`;
+      } catch {}
+    }
+  },
+  { urls: ['https://flw.teams.cloud.microsoft/*'] },
+  ['requestHeaders', 'extraHeaders']
+);
 const TEAMS_SHIFTS_URL = 'https://teams.cloud.microsoft/';
 const OUTLOOK_CALENDAR_URL = 'https://outlook.office.com/calendar/view/month';
 
@@ -72,94 +94,101 @@ function startWatchdog(idleMs = 90000) {
 
 // ─── Export Logic ─────────────────────────────────────────────────────────────
 
+// ─── Shifts via captured headers ─────────────────────────────────────────────
+
+function getTargetEndDate() {
+  const now = new Date();
+  const twoWeeksFromNow = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const year = now.getFullYear();
+  const cands = [
+    new Date(year, 1, 28), new Date(year, 7, 31),
+    new Date(year+1, 1, 28), new Date(year+1, 7, 31),
+    new Date(year+2, 1, 28),
+  ];
+  cands.forEach((d, i) => {
+    if (d.getMonth() === 1) {
+      const ly = d.getFullYear();
+      if ((ly % 4 === 0 && ly % 100 !== 0) || ly % 400 === 0) cands[i] = new Date(ly, 1, 29);
+    }
+  });
+  const future = cands.filter((d) => d > now).sort((a, b) => a - b);
+  return (future.length > 1 && future[0] <= twoWeeksFromNow) ? future[1] : future[0];
+}
+
+async function ensureShiftsFrameLoaded() {
+  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (!tabs.length) return false;
+  for (const tab of tabs) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: () => window.location.href,
+      });
+      if (results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
+      await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        await sleep(500);
+        const r2 = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
+        if (r2.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+async function fetchShiftsFromContent() {
+  if (!capturedShiftsHeaders) {
+    await ensureShiftsFrameLoaded();
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      if (capturedShiftsHeaders) break;
+      await sleep(500);
+    }
+  }
+
+  if (!capturedShiftsHeaders || !capturedApiBase) {
+    throw new Error('Could not capture Teams auth — open Teams and navigate to Shifts first.');
+  }
+
+  const authHeaders = {};
+  for (const h of capturedShiftsHeaders) authHeaders[h.name] = h.value;
+
+  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (!tabs.length) throw new Error('Open Teams in a browser tab first.');
+
+  for (const tab of tabs) {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      func: () => window.location.href,
+    }).catch(() => []);
+    if (!results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) continue;
+
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tab.id, { action: 'SCRAPE_AND_EXPORT', authHeaders }, (response) => {
+        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+        if (response?.success) return resolve(response.events);
+        reject(new Error(response?.error || 'No response from content script'));
+      });
+    });
+  }
+
+  throw new Error('Navigate to Shifts in Teams, then sync again.');
+}
+
 async function runExport({ auto = false, skipICloud = false } = {}) {
-  let scrapeTabId = null;
   const stopWatchdog = startWatchdog(90000);
   try {
     chrome.storage.local.set({ lastError: null });
-    setProgress('Opening Teams...', 2);
-    const tabResult = await getOrOpenTeamsShiftsTab(auto);
-    if (!tabResult) {
-      chrome.notifications.create('sync-skipped', {
-        type: 'basic',
-        iconUrl: 'icon48.png',
-        title: 'Teams Shifts — Sync Skipped',
-        message: 'Auto-sync skipped — Teams is not open. Open Teams and click Sync Shifts.',
-      });
-      clearProgress();
-      return { success: false, error: 'No Teams tab found' };
-    }
-    const { tab, opened: tabOpened } = tabResult;
-    if (tabOpened) scrapeTabId = tab.id;
-
-    // Step 1: wait until Teams sidebar is interactive, then navigate to Shifts
-    await waitForTeamsReady(tab.id);
+    setProgress('Fetching shifts...', 10);
     await checkCancelled();
-    setProgress('Navigating to Shifts...', 8);
-    await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] });
-    const navResult1 = await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
-    if (navResult1 && !navResult1.success) throw new Error(navResult1.error || 'Could not navigate to Shifts');
 
-    // Teams may reload the page after the user accepts a first-run permissions
-    // dialog ("Almost there!"). Wait for the tab to settle and the sidebar to be
-    // interactive, then re-inject and re-navigate so the scrape proceeds even if
-    // the content script was destroyed.
-    await waitForTabComplete(tab.id, 10000);
-    await waitForTeamsReady(tab.id);
-    await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content.js'] }).catch(() => {});
-    const navResult2 = await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' }, { frameId: 0 }).catch(() => null);
-    if (navResult2 && !navResult2.success) throw new Error(navResult2.error || 'Could not navigate to Shifts');
-    await sleep(2000);
-
-    // Step 2: wait for the Shifts iframe to appear and get its frameId
-    const shiftsFrame = await waitForShiftsFrame(tab.id);
-    setProgress('Loading Shifts...', 14);
-
-    // Step 3: inject content script into the iframe and wait for Shifts UI to render
-    await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [shiftsFrame.frameId] }, files: ['content.js'] });
-    await waitForShiftsReady(tab.id, shiftsFrame.frameId);
-    await checkCancelled();
-    setProgress('Starting scrape...', 18);
-
-    // Auto-detect user name from Teams top frame ("Account manager for ...")
-    let { userName } = await chrome.storage.local.get('userName');
-    try {
-      const nameResults = await chrome.scripting.executeScript({
-        target: { tabId: tab.id, frameIds: [0] },
-        func: () => {
-          const btn = document.querySelector('button[aria-label^="Account manager for"]');
-          if (btn) {
-            const match = btn.getAttribute('aria-label').match(/Account manager for (.+)/);
-            return match ? match[1] : null;
-          }
-          return null;
-        },
-      });
-      const detectedName = nameResults?.[0]?.result;
-      if (detectedName) {
-        userName = detectedName;
-        await chrome.storage.local.set({ userName: detectedName, userNameAutoDetected: true });
-        console.info('[ShiftsExport] Auto-detected user name:', detectedName);
-      }
-    } catch (e) {
-      console.info('[ShiftsExport] Name auto-detect failed, using saved name:', userName);
-    }
-
-    const response = await chrome.tabs.sendMessage(
-      tab.id,
-      { action: 'SCRAPE_AND_EXPORT', userName: userName || null },
-      { frameId: shiftsFrame.frameId }
-    );
-
-    if (!response || !response.success) {
-      throw new Error(response?.error || 'Scrape failed');
-    }
+    let events = await fetchShiftsFromContent();
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
     // Filter open shifts based on user settings
     const { includeOpenShifts } = await chrome.storage.local.get('includeOpenShifts');
-    let events = response.events || [];
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
     } else {
@@ -193,7 +222,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
-    const errMsg = err.message || 'Unknown error';
+    const errMsg = err?.message || (typeof err === 'string' ? err : '') || err?.name || 'Unknown error';
     chrome.storage.local.set({ lastError: errMsg });
     if (auto) {
       chrome.notifications.create('sync-failed', {
@@ -207,9 +236,6 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
   } finally {
     stopWatchdog();
     clearProgress();
-    if (scrapeTabId) {
-      try { await chrome.tabs.remove(scrapeTabId); } catch {}
-    }
   }
 }
 
