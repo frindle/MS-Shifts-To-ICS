@@ -169,7 +169,7 @@
       console.info('[ShiftsExport] Teams raw:', JSON.stringify(teamsData).slice(0, 500));
 
       const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
-      const teamIds = teamList.map((t) => t.id || t.teamId).filter(Boolean);
+      const teamIds = teamList.map((t) => t.team?.id || t.id || t.teamId).filter(Boolean);
       if (!teamIds.length) throw new Error('No teams found — check console for teams API response');
 
       console.info('[ShiftsExport] Team IDs:', teamIds);
