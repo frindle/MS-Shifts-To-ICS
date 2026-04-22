@@ -190,6 +190,15 @@ async function fetchShifts() {
   }
   const data = JSON.parse(shiftsText);
 
+  // Decode current user's AAD OID from the JWT so we can filter to only their shifts
+  let currentUserId = null;
+  try {
+    const authVal = headers['Authorization'] || headers['authorization'] || '';
+    const token = authVal.replace(/^Bearer\s+/i, '');
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    currentUserId = payload.oid || payload.sub || null;
+  } catch {}
+
   const events = [];
   const parseShiftItem = (item) => {
     const start = new Date(item.startDateTime || item.StartDateTime || item.start);
@@ -201,6 +210,8 @@ async function fetchShifts() {
   };
 
   for (const shift of (data.shifts || data.Shifts || [])) {
+    const shiftUserId = shift.userId || shift.assignedUserId;
+    if (currentUserId && shiftUserId && shiftUserId !== currentUserId) continue;
     const item = shift.sharedShift || shift.shiftItem || shift.draftShift || shift;
     const parsed = parseShiftItem(item);
     if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
@@ -211,6 +222,8 @@ async function fetchShifts() {
     if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
   }
   for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
+    const tdoUserId = tdo.userId || tdo.assignedUserId;
+    if (currentUserId && tdoUserId && tdoUserId !== currentUserId) continue;
     const item = tdo.sharedTimeOff || tdo.timeOffItem || tdo.draftTimeOff || tdo;
     const startStr = item.startDateTime || item.StartDateTime;
     if (!startStr) continue;
@@ -899,7 +912,9 @@ browser.runtime.onMessage.addListener((msg) => {
   }
 
   if (msg.action === 'CANCEL_SYNC') {
-    browser.storage.local.set({ syncCancelled: true }).catch(() => {});
+    capturedShiftsHeaders = null;
+    clearProgress();
+    browser.storage.local.set({ syncCancelled: true, lastError: null }).catch(() => {});
     return false;
   }
 
