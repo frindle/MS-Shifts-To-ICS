@@ -174,10 +174,12 @@
       const apiBase = `${window.location.origin}/${region}/api`;
       console.info('[ShiftsExport] API base:', apiBase);
 
-      // Use page's fetch so Teams' auth tokens (Bearer etc.) are included
-      const apiFetch = typeof unsafeWindow !== 'undefined' && unsafeWindow.fetch
-        ? unsafeWindow.fetch.bind(unsafeWindow)
-        : fetch;
+      // If background captured Teams' auth headers, use them; otherwise try page's fetch
+      const apiFetch = options.authHeaders
+        ? (url) => fetch(url, { headers: options.authHeaders })
+        : (typeof unsafeWindow !== 'undefined' && unsafeWindow.fetch
+            ? (url) => unsafeWindow.fetch.call(unsafeWindow, url)
+            : (url) => fetch(url));
 
       overlay.update('Getting teams...');
       const teamsResp = await apiFetch(`${apiBase}/users/me/teams`);
@@ -212,7 +214,9 @@
 
       const shiftsResp = await apiFetch(url);
       const shiftsText = await shiftsResp.text();
-      if (!shiftsResp.ok) throw new Error(`Shifts API error: ${shiftsResp.status}: ${shiftsText.slice(0, 120)}`);
+      if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
+        throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 120)}`);
+      }
       const data = JSON.parse(shiftsText);
 
       console.info('[ShiftsExport] Response keys:', Object.keys(data));
@@ -313,7 +317,7 @@
 
     if (msg.action === 'SCRAPE_AND_EXPORT') {
       if (!window.location.hostname.includes('flw.teams.cloud.microsoft')) return;
-      scrape({ userName: msg.userName || null })
+      scrape({ userName: msg.userName || null, authHeaders: msg.authHeaders || null })
         .then((events) => {
           const ics = generateICS(events);
           const serializable = events.map((e) => ({

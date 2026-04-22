@@ -155,10 +155,17 @@
       console.info('[ShiftsExport] API base:', apiBase);
 
       // Get the user's team IDs
+      const apiFetch = options.authHeaders
+        ? (url) => fetch(url, { headers: options.authHeaders })
+        : (url) => fetch(url);
+
       overlay.update('Getting teams...');
-      const teamsResp = await fetch(`${apiBase}/users/me/teams`);
-      if (!teamsResp.ok) throw new Error(`Teams API error: ${teamsResp.status}`);
-      const teamsData = await teamsResp.json();
+      const teamsResp = await apiFetch(`${apiBase}/users/me/teams`);
+      const teamsText = await teamsResp.text();
+      if (!teamsResp.ok || teamsText.trimStart().startsWith('<')) {
+        throw new Error(`Teams API ${teamsResp.status}: ${teamsText.slice(0, 120)}`);
+      }
+      const teamsData = JSON.parse(teamsText);
       console.info('[ShiftsExport] Teams raw:', JSON.stringify(teamsData).slice(0, 500));
 
       const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
@@ -186,9 +193,12 @@
       const url = `${apiBase}/users/me/dataindaterange?${params}`;
       console.info('[ShiftsExport] Fetching:', url);
 
-      const shiftsResp = await fetch(url);
-      if (!shiftsResp.ok) throw new Error(`Shifts API error: ${shiftsResp.status}`);
-      const data = await shiftsResp.json();
+      const shiftsResp = await apiFetch(url);
+      const shiftsText = await shiftsResp.text();
+      if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
+        throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 120)}`);
+      }
+      const data = JSON.parse(shiftsText);
 
       console.info('[ShiftsExport] Response keys:', Object.keys(data));
       console.info('[ShiftsExport] Raw sample:', JSON.stringify(data).slice(0, 3000));
@@ -289,7 +299,7 @@
 
     if (msg.action === 'SCRAPE_AND_EXPORT') {
       if (!window.location.hostname.includes('flw.teams.cloud.microsoft')) return;
-      scrape({ userName: msg.userName || null })
+      scrape({ userName: msg.userName || null, authHeaders: msg.authHeaders || null })
         .then((events) => {
           const ics = generateICS(events);
           const serializable = events.map((e) => ({
