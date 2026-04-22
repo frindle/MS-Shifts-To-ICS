@@ -11,7 +11,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
     if (!details.requestHeaders) return;
     const hasAuth = details.requestHeaders.some((h) => h.name.toLowerCase() === 'authorization');
-    if (hasAuth) {
+    if (hasAuth && details.url.includes('/api/')) {
       capturedShiftsHeaders = [...details.requestHeaders];
       try {
         const url = new URL(details.url);

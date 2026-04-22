@@ -184,7 +184,9 @@
       overlay.update('Getting teams...');
       const teamsResp = await apiFetch(`${apiBase}/users/me/teams`);
       const teamsText = await teamsResp.text();
-      if (!teamsResp.ok) throw new Error(`Teams API error: ${teamsResp.status}: ${teamsText.slice(0, 120)}`);
+      if (!teamsResp.ok || teamsText.trimStart().startsWith('<')) {
+        throw new Error(`Teams API ${teamsResp.status}: ${teamsText.slice(0, 200)}`);
+      }
       const teamsData = JSON.parse(teamsText);
       console.info('[ShiftsExport] Teams raw:', JSON.stringify(teamsData).slice(0, 500));
 
