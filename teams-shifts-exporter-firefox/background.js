@@ -127,15 +127,15 @@ async function ensureShiftsFrameLoaded() {
   const tabs = await browser.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
   if (!tabs.length) return false;
   for (const tab of tabs) {
-    if (await hasShiftsFrame(tab.id)) return true;
     try {
+      // Always navigate to Shifts to guarantee fresh API requests are made
       await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
-        await sleep(500);
-        if (await hasShiftsFrame(tab.id)) return true;
-      }
     } catch {}
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      if (await hasShiftsFrame(tab.id)) return true;
+    }
   }
   return false;
 }

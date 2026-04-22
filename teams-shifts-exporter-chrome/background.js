@@ -120,19 +120,14 @@ async function ensureShiftsFrameLoaded() {
   if (!tabs.length) return false;
   for (const tab of tabs) {
     try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true },
-        func: () => window.location.href,
-      });
-      if (results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
       await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
-      const deadline = Date.now() + 15000;
-      while (Date.now() < deadline) {
-        await sleep(500);
-        const r2 = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
-        if (r2.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
-      }
     } catch {}
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
+      if (results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
+    }
   }
   return false;
 }
