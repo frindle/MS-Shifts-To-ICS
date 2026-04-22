@@ -4,14 +4,11 @@
   if (window.__shiftsExportInitialized) return;
   window.__shiftsExportInitialized = true;
 
-  // Register API base URL with background when running inside the Shifts iframe
+  // Store API base URL directly when running inside the Shifts iframe
   if (window.location.hostname.includes('flw.teams.cloud.microsoft')) {
     const region = window.location.pathname.split('/').filter(Boolean)[0];
     if (region) {
-      chrome.runtime.sendMessage({
-        action: 'REGISTER_API_BASE',
-        apiBase: `${window.location.origin}/${region}/api`,
-      }).catch(() => {});
+      chrome.storage.local.set({ shiftsApiBase: `${window.location.origin}/${region}/api` }).catch(() => {});
     }
   }
 
