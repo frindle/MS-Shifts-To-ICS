@@ -30,6 +30,7 @@ const OUTLOOK_CALENDAR_URL = 'https://outlook.office.com/calendar/view/month';
 
 chrome.runtime.onInstalled.addListener(() => {
   clearProgress();
+  chrome.storage.local.remove(['storedEvents', 'lastICS', 'lastEvents', 'lastExport', 'lastCount']).catch(() => {});
   scheduleDailyAlarm();
 });
 
@@ -933,7 +934,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.action === 'CANCEL_SYNC') {
-    capturedShiftsHeaders = null;
     clearProgress();
     chrome.storage.local.set({ syncCancelled: true, lastError: null }).catch(() => {});
     return false;
