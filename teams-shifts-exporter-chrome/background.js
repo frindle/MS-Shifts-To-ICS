@@ -137,7 +137,7 @@ async function ensureShiftsFrameLoaded() {
   return false;
 }
 
-async function fetchShiftsFromContent() {
+async function fetchShifts() {
   if (!capturedShiftsHeaders) {
     await ensureShiftsFrameLoaded();
     const deadline = Date.now() + 10000;
@@ -151,29 +151,74 @@ async function fetchShiftsFromContent() {
     throw new Error('Could not capture Teams auth — open Teams and navigate to Shifts first.');
   }
 
-  const authHeaders = {};
-  for (const h of capturedShiftsHeaders) authHeaders[h.name] = h.value;
+  const headers = {};
+  for (const h of capturedShiftsHeaders) headers[h.name] = h.value;
 
-  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
-  if (!tabs.length) throw new Error('Open Teams in a browser tab first.');
+  const teamsResp = await fetch(`${capturedApiBase}/users/me/teams`, { headers });
+  const teamsText = await teamsResp.text();
+  if (!teamsResp.ok || teamsText.trimStart().startsWith('<')) {
+    capturedShiftsHeaders = null;
+    throw new Error(`Teams API ${teamsResp.status}: ${teamsText.slice(0, 200)}`);
+  }
+  const teamsData = JSON.parse(teamsText);
+  const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
+  const teamIds = teamList.map((t) => t.id || t.teamId).filter(Boolean);
+  if (!teamIds.length) throw new Error('No teams found');
 
-  for (const tab of tabs) {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id, allFrames: true },
-      func: () => window.location.href,
-    }).catch(() => []);
-    if (!results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) continue;
+  const startTime = new Date();
+  startTime.setHours(0, 0, 0, 0);
+  const endTime = getTargetEndDate();
+  const params = new URLSearchParams({
+    teamIds: teamIds.join(','),
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    includeShifts: 'true',
+    includeNotes: 'true',
+    includeOpenShifts: 'true',
+    includeDraft: 'true',
+  });
 
-    return new Promise((resolve, reject) => {
-      chrome.tabs.sendMessage(tab.id, { action: 'SCRAPE_AND_EXPORT', authHeaders }, (response) => {
-        if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-        if (response?.success) return resolve(response.events);
-        reject(new Error(response?.error || 'No response from content script'));
-      });
-    });
+  const shiftsUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
+  const shiftsResp = await fetch(shiftsUrl, { headers });
+  const shiftsText = await shiftsResp.text();
+  if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
+    capturedShiftsHeaders = null;
+    throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 200)}`);
+  }
+  const data = JSON.parse(shiftsText);
+
+  const events = [];
+  const parseShiftItem = (item) => {
+    const start = new Date(item.startDateTime || item.StartDateTime || item.start);
+    const end = new Date(item.endDateTime || item.EndDateTime || item.end);
+    if (isNaN(start) || isNaN(end)) return null;
+    const summary = item.displayName || item.DisplayName || item.theme || item.Theme || 'Shift';
+    const notes = item.notes || item.Notes || '';
+    return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
+  };
+
+  for (const shift of (data.shifts || data.Shifts || [])) {
+    const item = shift.sharedShift || shift.shiftItem || shift.draftShift || shift;
+    const parsed = parseShiftItem(item);
+    if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
+  }
+  for (const shift of (data.openShifts || data.OpenShifts || [])) {
+    const item = shift.sharedOpenShift || shift.openShiftItem || shift.draftOpenShift || shift;
+    const parsed = parseShiftItem(item);
+    if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
+  }
+  for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
+    const item = tdo.sharedTimeOff || tdo.timeOffItem || tdo.draftTimeOff || tdo;
+    const startStr = item.startDateTime || item.StartDateTime;
+    if (!startStr) continue;
+    const start = new Date(startStr);
+    const endStr = item.endDateTime || item.EndDateTime;
+    const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
+    const summary = item.reason?.displayName || item.displayName || 'TDO';
+    events.push({ summary, notes: '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
-  throw new Error('Navigate to Shifts in Teams, then sync again.');
+  return events;
 }
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
@@ -183,7 +228,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     setProgress('Fetching shifts...', 10);
     await checkCancelled();
 
-    let events = await fetchShiftsFromContent();
+    let events = await fetchShifts();
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
