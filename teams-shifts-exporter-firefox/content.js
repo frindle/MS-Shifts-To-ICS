@@ -174,10 +174,16 @@
       const apiBase = `${window.location.origin}/${region}/api`;
       console.info('[ShiftsExport] API base:', apiBase);
 
+      // Use page's fetch so Teams' auth tokens (Bearer etc.) are included
+      const apiFetch = typeof unsafeWindow !== 'undefined' && unsafeWindow.fetch
+        ? unsafeWindow.fetch.bind(unsafeWindow)
+        : fetch;
+
       overlay.update('Getting teams...');
-      const teamsResp = await fetch(`${apiBase}/users/me/teams`);
-      if (!teamsResp.ok) throw new Error(`Teams API error: ${teamsResp.status}`);
-      const teamsData = await teamsResp.json();
+      const teamsResp = await apiFetch(`${apiBase}/users/me/teams`);
+      const teamsText = await teamsResp.text();
+      if (!teamsResp.ok) throw new Error(`Teams API error: ${teamsResp.status}: ${teamsText.slice(0, 120)}`);
+      const teamsData = JSON.parse(teamsText);
       console.info('[ShiftsExport] Teams raw:', JSON.stringify(teamsData).slice(0, 500));
 
       const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
@@ -204,9 +210,10 @@
       const url = `${apiBase}/users/me/dataindaterange?${params}`;
       console.info('[ShiftsExport] Fetching:', url);
 
-      const shiftsResp = await fetch(url);
-      if (!shiftsResp.ok) throw new Error(`Shifts API error: ${shiftsResp.status}`);
-      const data = await shiftsResp.json();
+      const shiftsResp = await apiFetch(url);
+      const shiftsText = await shiftsResp.text();
+      if (!shiftsResp.ok) throw new Error(`Shifts API error: ${shiftsResp.status}: ${shiftsText.slice(0, 120)}`);
+      const data = JSON.parse(shiftsText);
 
       console.info('[ShiftsExport] Response keys:', Object.keys(data));
       console.info('[ShiftsExport] Raw sample:', JSON.stringify(data).slice(0, 3000));
