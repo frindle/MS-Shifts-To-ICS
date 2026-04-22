@@ -213,6 +213,13 @@ async function fetchShifts() {
     events.push({ summary, notes: '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
+  const now = Date.now();
+  const futureCount = events.filter(e => e.endMs > now).length;
+  if (futureCount === 0) {
+    const s = (data.shifts||[])[0];
+    throw new Error(`Parse failed: 0 parsed from ${(data.shifts||[]).length} raw. Sample keys: ${Object.keys(s||{}).join(',')} sharedShift keys: ${Object.keys(s?.sharedShift||{}).join(',')} sample: ${JSON.stringify(s).slice(0,500)}`);
+  }
+
   return events;
 }
 
