@@ -166,7 +166,7 @@ async function fetchShifts() {
   const teamsData = JSON.parse(teamsText);
   const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
   const teamIds = teamList.map((t) => t.id || t.teamId).filter(Boolean);
-  if (!teamIds.length) throw new Error('No teams found');
+  if (!teamIds.length) throw new Error(`No teams found. Keys: ${Object.keys(teamsData||{}).join(',')} Sample: ${JSON.stringify(teamsData).slice(0,400)}`);
 
   const startTime = new Date();
   startTime.setHours(0, 0, 0, 0);
