@@ -192,41 +192,30 @@ async function fetchShifts() {
 
   const events = [];
   const parseShiftItem = (item) => {
-    const start = new Date(item.startDateTime || item.StartDateTime || item.start);
-    const end = new Date(item.endDateTime || item.EndDateTime || item.end);
+    const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
+    const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
     if (isNaN(start) || isNaN(end)) return null;
-    const summary = item.displayName || item.DisplayName || item.theme || item.Theme || 'Shift';
+    const summary = item.title || item.displayName || item.shiftType || item.theme || 'Shift';
     const notes = item.notes || item.Notes || '';
     return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
   };
 
   for (const shift of (data.shifts || data.Shifts || [])) {
-    const item = shift.sharedShift || shift.shiftItem || shift.draftShift || shift;
-    const parsed = parseShiftItem(item);
+    const parsed = parseShiftItem(shift);
     if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
   }
   for (const shift of (data.openShifts || data.OpenShifts || [])) {
-    const item = shift.sharedOpenShift || shift.openShiftItem || shift.draftOpenShift || shift;
-    const parsed = parseShiftItem(item);
+    const parsed = parseShiftItem(shift);
     if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
   }
   for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
-    const item = tdo.sharedTimeOff || tdo.timeOffItem || tdo.draftTimeOff || tdo;
-    const startStr = item.startDateTime || item.StartDateTime;
+    const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
     if (!startStr) continue;
     const start = new Date(startStr);
-    const endStr = item.endDateTime || item.EndDateTime;
+    const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
     const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-    const summary = item.reason?.displayName || item.displayName || 'TDO';
-    events.push({ summary, notes: '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
-  }
-
-  const now = Date.now();
-  const futureCount = events.filter(e => e.endMs > now).length;
-  const latest = events.length ? new Date(Math.max(...events.map(e => e.endMs))).toDateString() : 'none';
-  if (futureCount === 0) {
-    const s = (data.shifts||[])[0];
-    throw new Error(`Parse failed: 0 parsed from ${(data.shifts||[]).length} raw. Sample keys: ${Object.keys(s||{}).join(',')} sharedShift keys: ${Object.keys(s?.sharedShift||{}).join(',')} sample: ${JSON.stringify(s).slice(0,500)}`);
+    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
+    events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
   return events;
