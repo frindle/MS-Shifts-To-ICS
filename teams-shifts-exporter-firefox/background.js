@@ -31,7 +31,6 @@ const OUTLOOK_CALENDAR_URL = 'https://outlook.office.com/calendar/view/month';
 
 browser.runtime.onInstalled.addListener(() => {
   clearProgress();
-  browser.storage.local.remove(['storedEvents', 'lastICS', 'lastEvents', 'lastExport', 'lastCount']).catch(() => {});
   scheduleDailyAlarm();
 });
 
