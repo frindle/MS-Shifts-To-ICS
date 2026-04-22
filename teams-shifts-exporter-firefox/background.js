@@ -221,6 +221,13 @@ async function fetchShifts() {
     events.push({ summary, notes: '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
+  const now = Date.now();
+  const futureCount = events.filter(e => e.endMs > now).length;
+  const latest = events.length ? new Date(Math.max(...events.map(e => e.endMs))).toDateString() : 'none';
+  if (futureCount === 0) {
+    throw new Error(`API returned ${events.length} shifts, all in the past. Latest: ${latest}. Requested until: ${endTime.toDateString()}. Raw shifts in response: ${(data.shifts||[]).length}, openShifts: ${(data.openShifts||[]).length}`);
+  }
+
   return events;
 }
 
