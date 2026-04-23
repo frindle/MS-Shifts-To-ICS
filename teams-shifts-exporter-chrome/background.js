@@ -222,16 +222,17 @@ async function fetchShifts() {
       const notes = item.notes || item.Notes || '';
       const rawType = item.shiftType || item.theme || 'Shift';
       const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
-      return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
+      const isAllDay = rawType === 'Absence';
+      return { startMs: start.getTime(), endMs: end.getTime(), summary, notes, isAllDay };
     };
 
     for (const shift of (data.shifts || data.Shifts || [])) {
       const parsed = parseShiftItem(shift);
-      if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
+      if (parsed) events.push({ ...parsed, isOpenShift: false });
     }
     for (const shift of (data.openShifts || data.OpenShifts || [])) {
       const parsed = parseShiftItem(shift);
-      if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
+      if (parsed) events.push({ ...parsed, isOpenShift: true });
     }
     for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
       const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
