@@ -116,8 +116,21 @@ function getTargetEndDate() {
 }
 
 async function ensureShiftsFrameLoaded() {
-  const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
-  if (!tabs.length) return false;
+  let tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+  if (!tabs.length) {
+    setProgress('Opening Teams...', 3);
+    const tab = await chrome.tabs.create({ url: 'https://teams.cloud.microsoft/', active: true });
+    // Wait up to 25s for the content script to be ready
+    const deadline = Date.now() + 25000;
+    while (Date.now() < deadline) {
+      await sleep(1000);
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'PING' });
+        break;
+      } catch {}
+    }
+    tabs = [tab];
+  }
   for (const tab of tabs) {
     try {
       await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });

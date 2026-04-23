@@ -310,6 +310,11 @@
   window.__shiftsExport = { scrape, generateICS, getTargetEndDate };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg.action === 'PING') {
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (msg.action === 'NAVIGATE_TO_SHIFTS') {
       navigateToShifts()
         .then(() => sendResponse({ success: true }))
