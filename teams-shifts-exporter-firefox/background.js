@@ -208,7 +208,7 @@ async function fetchShifts() {
     const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
     if (isNaN(start) || isNaN(end)) return null;
     const notes = item.notes || item.Notes || '';
-    const summary = item.title || item.displayName || notes || item.shiftType || item.theme || 'Shift';
+    const summary = item.title || item.displayName || item.shiftType || item.theme || 'Shift';
     return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
   };
 
@@ -226,7 +226,7 @@ async function fetchShifts() {
     const start = new Date(startStr);
     const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
     const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || tdo.notes || 'Time Off';
+    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
     events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
@@ -367,13 +367,12 @@ function deduplicateEvents(events) {
 // deduplicates, saves back, and returns the full merged list.
 async function mergeWithHistory(newEvents) {
   const now = Date.now();
-  const { storedEvents = [] } = await browser.storage.local.get('storedEvents');
+  const { storedEvents = [], excludedStartMs = [] } = await browser.storage.local.get(['storedEvents', 'excludedStartMs']);
+  const excluded = new Set(excludedStartMs);
 
-  // Only keep stored events that are already in the past
-  const pastStored = storedEvents.filter((e) => e.endMs < now);
-
-  // Merge past history + all newly scraped events, then deduplicate
-  const merged = deduplicateEvents([...pastStored, ...newEvents]);
+  const pastStored = storedEvents.filter((e) => e.endMs < now && !excluded.has(e.startMs));
+  const filtered = newEvents.filter((e) => !excluded.has(e.startMs));
+  const merged = deduplicateEvents([...pastStored, ...filtered]);
 
   await browser.storage.local.set({ storedEvents: merged });
   return merged;
