@@ -187,8 +187,8 @@ async function fetchShifts() {
     const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
     const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
     if (isNaN(start) || isNaN(end)) return null;
-    const summary = item.title || item.displayName || item.shiftType || item.theme || 'Shift';
     const notes = item.notes || item.Notes || '';
+    const summary = item.title || item.displayName || notes || item.shiftType || item.theme || 'Shift';
     return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
   };
 
@@ -206,7 +206,7 @@ async function fetchShifts() {
     const start = new Date(startStr);
     const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
     const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
+    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || tdo.notes || 'Time Off';
     events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
   }
 
@@ -611,6 +611,9 @@ class iCloudCalDAVClient {
     let hops = 0;
     while (hops < 5) {
       const status = response.status;
+      if (status === 0 || response.type === 'opaqueredirect') {
+        throw new Error(`iCloud request got opaque redirect — credential or URL issue`);
+      }
       if (status === 301 || status === 302 || status === 307 || status === 308) {
         const location = response.headers.get('Location');
         if (!location) break;
