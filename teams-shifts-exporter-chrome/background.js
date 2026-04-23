@@ -201,7 +201,8 @@ async function fetchShifts() {
     const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
     if (isNaN(start) || isNaN(end)) return null;
     const notes = item.notes || item.Notes || '';
-    const summary = item.title || item.displayName || item.shiftType || item.theme || 'Shift';
+    const rawType = item.shiftType || item.theme || 'Shift';
+    const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
     return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
   };
 
