@@ -155,28 +155,31 @@ async function ensureShiftsFrameLoaded() {
 }
 
 async function fetchShifts() {
-  if (!capturedShiftsHeaders) {
-    await ensureShiftsFrameLoaded();
-    const deadline = Date.now() + 10000;
-    while (Date.now() < deadline) {
-      if (capturedShiftsHeaders) break;
-      await sleep(500);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!capturedShiftsHeaders) {
+      await ensureShiftsFrameLoaded();
+      const deadline = Date.now() + 10000;
+      while (Date.now() < deadline) {
+        if (capturedShiftsHeaders) break;
+        await sleep(500);
+      }
     }
-  }
 
-  if (!capturedShiftsHeaders || !capturedApiBase) {
-    throw new Error('Could not capture Teams auth — open Teams and navigate to Shifts first.');
-  }
+    if (!capturedShiftsHeaders || !capturedApiBase) {
+      if (attempt === 0) { capturedShiftsHeaders = null; continue; }
+      throw new Error('Could not capture Teams auth — open Teams and navigate to Shifts first.');
+    }
 
-  const headers = {};
-  for (const h of capturedShiftsHeaders) headers[h.name] = h.value;
+    const headers = {};
+    for (const h of capturedShiftsHeaders) headers[h.name] = h.value;
 
-  const teamsResp = await fetch(`${capturedApiBase}/users/me/teams`, { headers });
-  const teamsText = await teamsResp.text();
-  if (!teamsResp.ok || teamsText.trimStart().startsWith('<')) {
-    capturedShiftsHeaders = null;
-    throw new Error(`Teams API ${teamsResp.status}: ${teamsText.slice(0, 200)}`);
-  }
+    const teamsResp = await fetch(`${capturedApiBase}/users/me/teams`, { headers });
+    const teamsText = await teamsResp.text();
+    if (!teamsResp.ok || teamsText.trimStart().startsWith('<')) {
+      capturedShiftsHeaders = null;
+      if (attempt === 0) continue;
+      throw new Error(`Teams API ${teamsResp.status}: ${teamsText.slice(0, 200)}`);
+    }
   const teamsData = JSON.parse(teamsText);
   const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
   const teamIds = teamList.map((t) => t.team?.id || t.id || t.teamId).filter(Boolean);
@@ -195,45 +198,47 @@ async function fetchShifts() {
     includeDraft: 'true',
   });
 
-  const shiftsUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
-  const shiftsResp = await fetch(shiftsUrl, { headers });
-  const shiftsText = await shiftsResp.text();
-  if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
-    capturedShiftsHeaders = null;
-    throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 200)}`);
-  }
-  const data = JSON.parse(shiftsText);
+    const shiftsUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
+    const shiftsResp = await fetch(shiftsUrl, { headers });
+    const shiftsText = await shiftsResp.text();
+    if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
+      capturedShiftsHeaders = null;
+      if (attempt === 0) continue;
+      throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 200)}`);
+    }
+    const data = JSON.parse(shiftsText);
 
-  const events = [];
-  const parseShiftItem = (item) => {
-    const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
-    const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
-    if (isNaN(start) || isNaN(end)) return null;
-    const notes = item.notes || item.Notes || '';
-    const rawType = item.shiftType || item.theme || 'Shift';
-    const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
-    return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
-  };
+    const events = [];
+    const parseShiftItem = (item) => {
+      const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
+      const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
+      if (isNaN(start) || isNaN(end)) return null;
+      const notes = item.notes || item.Notes || '';
+      const rawType = item.shiftType || item.theme || 'Shift';
+      const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
+      return { startMs: start.getTime(), endMs: end.getTime(), summary, notes };
+    };
 
-  for (const shift of (data.shifts || data.Shifts || [])) {
-    const parsed = parseShiftItem(shift);
-    if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
-  }
-  for (const shift of (data.openShifts || data.OpenShifts || [])) {
-    const parsed = parseShiftItem(shift);
-    if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
-  }
-  for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
-    const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
-    if (!startStr) continue;
-    const start = new Date(startStr);
-    const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
-    const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-    const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
-    events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
-  }
+    for (const shift of (data.shifts || data.Shifts || [])) {
+      const parsed = parseShiftItem(shift);
+      if (parsed) events.push({ ...parsed, isOpenShift: false, isAllDay: false });
+    }
+    for (const shift of (data.openShifts || data.OpenShifts || [])) {
+      const parsed = parseShiftItem(shift);
+      if (parsed) events.push({ ...parsed, isOpenShift: true, isAllDay: false });
+    }
+    for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
+      const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
+      if (!startStr) continue;
+      const start = new Date(startStr);
+      const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
+      const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
+      const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
+      events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
+    }
 
-  return events;
+    return events;
+  }
 }
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
