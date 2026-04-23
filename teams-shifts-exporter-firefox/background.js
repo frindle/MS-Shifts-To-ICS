@@ -285,11 +285,6 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     const mergedEvents = await mergeWithHistory(events);
     const mergedICS = generateICS(mergedEvents);
 
-    try {
-      await downloadICS(mergedICS, buildFilename());
-    } catch (dlErr) {
-      console.warn('[ShiftsExport] ICS download error (non-fatal):', dlErr);
-    }
 
     const { importToOutlook } = await browser.storage.local.get('importToOutlook');
     let outlookResult = null;
