@@ -120,22 +120,22 @@ async function ensureShiftsFrameLoaded() {
   if (!tabs.length) {
     setProgress('Opening Teams...', 3);
     const tab = await chrome.tabs.create({ url: 'https://teams.cloud.microsoft/', active: true });
-    // Wait up to 25s for the content script to be ready
-    const deadline = Date.now() + 25000;
+    const deadline = Date.now() + 30000;
     while (Date.now() < deadline) {
       await sleep(1000);
       try {
-        await chrome.tabs.sendMessage(tab.id, { action: 'PING' });
-        break;
-      } catch {}
+        const t = await chrome.tabs.get(tab.id);
+        if (t.status === 'complete') break;
+      } catch { break; }
     }
+    await sleep(2000);
     tabs = [tab];
   }
   for (const tab of tabs) {
     try {
       await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
     } catch {}
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 25000;
     while (Date.now() < deadline) {
       await sleep(500);
       const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
@@ -227,7 +227,7 @@ async function fetchShifts() {
 }
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
-  const stopWatchdog = startWatchdog(90000);
+  const stopWatchdog = startWatchdog(120000);
   try {
     chrome.storage.local.set({ lastError: null });
     setProgress('Fetching shifts...', 10);
