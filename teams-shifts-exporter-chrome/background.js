@@ -132,14 +132,29 @@ async function ensureShiftsFrameLoaded() {
     tabs = [tab];
   }
   for (const tab of tabs) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
-    } catch {}
-    const deadline = Date.now() + 25000;
-    while (Date.now() < deadline) {
-      await sleep(500);
-      const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
-      if (results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
+    for (let nav = 0; nav < 2; nav++) {
+      const loadDeadline = Date.now() + 15000;
+      while (Date.now() < loadDeadline) {
+        await sleep(500);
+        try {
+          const t = await chrome.tabs.get(tab.id);
+          if (t.status === 'complete') break;
+        } catch { break; }
+      }
+      await sleep(1500);
+
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
+      } catch {}
+
+      const frameDeadline = Date.now() + 20000;
+      while (Date.now() < frameDeadline) {
+        await sleep(500);
+        const results = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: () => window.location.href }).catch(() => []);
+        if (results.some((r) => r.result && r.result.includes('flw.teams.cloud.microsoft'))) return true;
+      }
+
+      if (nav === 0) setProgress('Waiting for Teams to finish loading...', 6);
     }
   }
   return false;

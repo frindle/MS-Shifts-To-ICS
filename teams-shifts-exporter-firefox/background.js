@@ -142,13 +142,31 @@ async function ensureShiftsFrameLoaded() {
     tabs = [tab];
   }
   for (const tab of tabs) {
-    try {
-      await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
-    } catch {}
-    const deadline = Date.now() + 25000;
-    while (Date.now() < deadline) {
-      await sleep(500);
-      if (await hasShiftsFrame(tab.id)) return true;
+    // Try navigating up to 2 times — the "Almost there" dialog causes a reload
+    // which destroys the content script; we wait for reload then re-navigate
+    for (let nav = 0; nav < 2; nav++) {
+      // Wait for tab to be fully loaded before navigating
+      const loadDeadline = Date.now() + 15000;
+      while (Date.now() < loadDeadline) {
+        await sleep(500);
+        try {
+          const t = await browser.tabs.get(tab.id);
+          if (t.status === 'complete') break;
+        } catch { break; }
+      }
+      await sleep(1500);
+
+      try {
+        await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
+      } catch {}
+
+      const frameDeadline = Date.now() + 20000;
+      while (Date.now() < frameDeadline) {
+        await sleep(500);
+        if (await hasShiftsFrame(tab.id)) return true;
+      }
+
+      if (nav === 0) setProgress('Waiting for Teams to finish loading...', 6);
     }
   }
   return false;
