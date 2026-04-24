@@ -160,6 +160,24 @@ async function ensureShiftsFrameLoaded() {
         await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
       } catch {}
 
+      // If clicking "Continue" on the Teams permission dialog caused a page reload,
+      // wait for the reload to finish then navigate to Shifts on the reloaded page.
+      await sleep(500);
+      const tabAfterNav = await browser.tabs.get(tab.id).catch(() => null);
+      if (tabAfterNav?.status === 'loading') {
+        const reloadDeadline = Date.now() + 20000;
+        while (Date.now() < reloadDeadline) {
+          await sleep(500);
+          const t2 = await browser.tabs.get(tab.id).catch(() => null);
+          if (!t2 || t2.status === 'complete') break;
+        }
+        await sleep(2000);
+        try {
+          await browser.tabs.sendMessage(tab.id, { action: 'NAVIGATE_TO_SHIFTS' });
+        } catch {}
+        await sleep(2000);
+      }
+
       const frameDeadline = Date.now() + 20000;
       while (Date.now() < frameDeadline) {
         await sleep(500);
