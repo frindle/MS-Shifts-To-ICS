@@ -140,13 +140,16 @@
 
     moreBtn.click();
 
-    const flyoutDeadline = Date.now() + 2000;
+    const flyoutDeadline = Date.now() + 3000;
     let shiftsItem = null;
     while (Date.now() < flyoutDeadline) {
-      shiftsItem = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="button"], li')).find((el) => {
-        const text = el.textContent.trim();
+      shiftsItem = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], [role="button"], [role="listitem"], li')).find((el) => {
         const aria = el.getAttribute('aria-label') || '';
-        return /\bshifts\b/i.test(aria) || /^shifts$/i.test(text) || /^shifts\b/i.test(text);
+        const title = el.getAttribute('title') || '';
+        if (/\bshifts\b/i.test(aria) || /\bshifts\b/i.test(title)) return true;
+        // Use first line only — flyout items often have nested description text
+        const firstLine = el.textContent.trim().split('\n')[0].trim();
+        return /^shifts$/i.test(firstLine);
       });
       if (shiftsItem) break;
       await sleep(200);
@@ -157,7 +160,9 @@
       throw new Error('Shifts not found in Teams menu. Please pin Shifts to your sidebar.');
     }
 
-    shiftsItem.click();
+    // Click the inner interactive element if present, otherwise the item itself
+    const clickTarget = shiftsItem.querySelector('[role="button"], button, a') || shiftsItem;
+    clickTarget.click();
     await sleep(2500);
     await dismissTeamsPermissionDialog();
     return true;
