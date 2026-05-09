@@ -3,8 +3,8 @@
 
 import json, time, uuid, hashlib, hmac, base64, urllib.request, urllib.error, sys, os
 
-JWT_ISSUER = 'user:19808830:875'
-JWT_SECRET = '99e0c907dfb2f5f17d82c7b8c3ba3d9cb44e686ea10a15c3dff6384dbfa79f16'
+JWT_ISSUER = 'user:19808830:923'
+JWT_SECRET = 'f3c0b1b4ee9b726c42705982f836d51e889bf8ddefb4b856a88c99505acb1c24'
 ADDON_ID = '2993651'
 XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.51.xpi'
 OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.51-signed.xpi'
