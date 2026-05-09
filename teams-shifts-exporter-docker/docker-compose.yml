@@ -1,0 +1,27 @@
+services:
+  teams-shifts:
+    build: .
+    container_name: teams-shifts-sync
+    restart: unless-stopped
+    environment:
+      - PUSHOVER_TOKEN=${PUSHOVER_TOKEN}
+      - PUSHOVER_USER=${PUSHOVER_USER}
+    volumes:
+      - chrome-profile:/data/chrome-profile
+    shm_size: "256mb"
+    networks:
+      teams_shifts_net:
+        ipv4_address: 10.0.8.188
+
+networks:
+  teams_shifts_net:
+    driver: macvlan
+    driver_opts:
+      parent: br0        # match your Unraid bridge interface (br0 is the default)
+    ipam:
+      config:
+        - subnet: 10.0.0.0/20
+          gateway: 10.0.0.1
+
+volumes:
+  chrome-profile:

@@ -33,6 +33,11 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.51
+- Firefox: added Download ICS File button (was Chrome-only)
+- Firefox: cancel sync now immediately hides the progress bar and shows a "Sync cancelled" message instead of leaving the UI in a disabled state
+- Chrome: increased spacing above Clear & Re-import button
+
 ### v1.26
 - Added TDO (Time off) support: TDO blocks are now exported as all-day calendar events with any notes included in the description
 - Fixed shift notes containing newlines (e.g. traded shifts with multi-line trade notes) being silently dropped due to regex not matching across line breaks — notes now appear in the event description

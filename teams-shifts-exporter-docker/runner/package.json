@@ -1,0 +1,12 @@
+{
+  "name": "teams-shifts-sync-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "sync": "node sync.js"
+  },
+  "dependencies": {
+    "puppeteer-core": "^22.12.0"
+  }
+}

@@ -2,8 +2,8 @@
 
 // ─── Update Check ─────────────────────────────────────────────────────────────
 
-const DOWNLOAD_URL = 'https://github.com/frindle/MS-Shifts-To-ICS/releases/latest/download/teams-shifts-exporter-firefox-signed.xpi';
-const VERSION_URL = 'https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/teams-shifts-exporter-firefox/manifest.json';
+const DOWNLOAD_URL = 'https://github.com/frindle/MS-Shifts-To-ICS/releases/latest';
+const VERSION_URL = 'https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/teams-shifts-exporter-chrome/manifest.json';
 
 function compareVersions(a, b) {
   const pa = a.split('.').map(Number);
@@ -22,16 +22,11 @@ function compareVersions(a, b) {
     .then((remote) => {
       if (compareVersions(remote.version, current) > 0) {
         const banner = document.getElementById('updateBanner');
-        const link = document.createElement('a');
-        link.href = DOWNLOAD_URL;
-        link.target = '_blank';
-        link.textContent = 'download here';
-        banner.textContent = `Update available (v${remote.version}) — `;
-        banner.appendChild(link);
+        banner.innerHTML = `Update available (v${remote.version}) — <a href="${DOWNLOAD_URL}" target="_blank">download here</a>`;
         banner.style.display = 'block';
       }
     })
-    .catch(() => {}); // silently ignore network errors
+    .catch(() => {});
 })();
 
 function getTargetEndDate() {
@@ -113,10 +108,9 @@ function hideProgress() {
 }
 
 cancelSyncBtn.addEventListener('click', () => {
+  cancelSyncBtn.disabled = true;
+  cancelSyncBtn.textContent = 'Cancelling…';
   chrome.runtime.sendMessage({ action: 'CANCEL_SYNC' });
-  hideProgress();
-  logEl.textContent = 'Sync cancelled.';
-  logEl.className = '';
 });
 
 function startProgressPolling() {
@@ -151,7 +145,7 @@ targetDateEl.textContent = target.toLocaleDateString(undefined, {
 // Load last export status
 const includeOpenShiftsEl = document.getElementById('includeOpenShifts');
 
-function setICloudCredsCollapsed(collapsed, email) {
+function setICloudCredsCollapsed(collapsed) {
   icloudCredsSectionEl.style.display = collapsed ? 'none' : 'block';
   icloudCredsChevronEl.classList.toggle('open', !collapsed);
 }
@@ -177,11 +171,9 @@ chrome.storage.local.get(
       importToiCloudEl.checked = true;
       icloudCredsChevronEl.style.display = 'inline';
       if (!data.icloudCredsSet) {
-        // No saved creds — show fields expanded
         icloudCredsSectionEl.style.display = 'block';
         icloudCredsChevronEl.classList.add('open');
       }
-      // If creds are saved, section stays hidden until chevron clicked
     }
     if (data.icloudEmail) {
       icloudEmailEl.value = data.icloudEmail;
@@ -202,7 +194,6 @@ importToiCloudEl.addEventListener('change', () => {
   const on = importToiCloudEl.checked;
   icloudCredsChevronEl.style.display = on ? 'inline' : 'none';
   if (on) {
-    // Only expand if no credentials saved yet; otherwise stay hidden until chevron clicked
     chrome.storage.local.get('icloudCredsSet', (data) => {
       if (!data.icloudCredsSet) {
         icloudCredsSectionEl.style.display = 'block';
@@ -243,7 +234,6 @@ includeOpenShiftsEl.addEventListener('change', () => {
   chrome.runtime.sendMessage({ action: 'SET_INCLUDE_OPEN_SHIFTS', value: includeOpenShiftsEl.checked });
 });
 
-
 // ─── Export Button ────────────────────────────────────────────────────────────
 
 // ─── Clear & Re-import Button ────────────────────────────────────────────────
@@ -279,6 +269,26 @@ clearReimportBtn.addEventListener('click', () => {
 
 // ─── Export Button ────────────────────────────────────────────────────────────
 
+downloadICSBtn.addEventListener('click', () => {
+  downloadICSBtn.disabled = true;
+  downloadICSBtn.textContent = 'Downloading...';
+  logEl.textContent = '';
+  logEl.className = '';
+
+  chrome.runtime.sendMessage({ action: 'DOWNLOAD_ICS' }, (response) => {
+    downloadICSBtn.disabled = false;
+    downloadICSBtn.textContent = 'Download ICS File';
+
+    if (response && response.success) {
+      logEl.textContent = 'ICS file saved to Downloads.';
+      logEl.className = 'ok';
+    } else {
+      logEl.textContent = `Error: ${response?.error || 'Unknown error'}`;
+      logEl.className = '';
+    }
+  });
+});
+
 exportBtn.addEventListener('click', () => {
   exportBtn.disabled = true;
   exportBtn.textContent = 'Syncing...';
@@ -308,26 +318,6 @@ exportBtn.addEventListener('click', () => {
           lastExportEl.classList.remove('none');
         }
       });
-    } else {
-      logEl.textContent = `Error: ${response?.error || 'Unknown error'}`;
-      logEl.className = '';
-    }
-  });
-});
-
-downloadICSBtn.addEventListener('click', () => {
-  downloadICSBtn.disabled = true;
-  downloadICSBtn.textContent = 'Downloading...';
-  logEl.textContent = '';
-  logEl.className = '';
-
-  chrome.runtime.sendMessage({ action: 'DOWNLOAD_ICS' }, (response) => {
-    downloadICSBtn.disabled = false;
-    downloadICSBtn.textContent = 'Download ICS File';
-
-    if (response && response.success) {
-      logEl.textContent = 'ICS file saved to Downloads.';
-      logEl.className = 'ok';
     } else {
       logEl.textContent = `Error: ${response?.error || 'Unknown error'}`;
       logEl.className = '';
