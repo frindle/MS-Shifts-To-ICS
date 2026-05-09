@@ -1,11 +1,19 @@
 'use strict';
 
 const puppeteer = require('puppeteer-core');
+const fs        = require('fs');
 
-const CHROME_PATH = process.env.CHROME_PATH || '/usr/bin/google-chrome-stable';
+const CHROME_PATH    = process.env.CHROME_PATH || '/usr/bin/google-chrome-stable';
 const EXTENSION_PATH = '/app/extension';
-const PROFILE_PATH = '/data/chrome-profile';
-const PUSHOVER_URL = 'https://api.pushover.net/1/messages.json';
+const PROFILE_PATH   = '/data/chrome-profile';
+const SETTINGS_PATH  = '/data/settings.json';
+const PUSHOVER_URL   = 'https://api.pushover.net/1/messages.json';
+
+function loadSettings() {
+  const defaults = { importToOutlook: false, importToiCloud: false, icloudEmail: '', icloudAppPassword: '', includeOpenShifts: true };
+  try { return { ...defaults, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
+  catch { return defaults; }
+}
 
 // How long to wait for Teams to fire a webRequest and let the SW capture auth headers.
 const AUTH_TIMEOUT_MS = 90_000;
@@ -106,13 +114,24 @@ async function runSync() {
         'Teams auth not captured within 90s — connect to VNC (port 5900) and log in to Teams'
       );
     }
-    console.log('[sync] Auth captured — triggering export');
+    console.log('[sync] Auth captured — applying settings and triggering export');
 
-    // Reset storage state so we can detect a fresh completion.
+    // Push settings from /data/settings.json into chrome.storage.local so the
+    // extension picks them up (iCloud creds, toggles, etc.) before running.
+    const settings = loadSettings();
     await swEval(
       session,
       `(async () => {
-        await chrome.storage.local.set({ syncRunning: false, lastError: null, lastExport: null });
+        await chrome.storage.local.set({
+          syncRunning:       false,
+          lastError:         null,
+          lastExport:        null,
+          importToOutlook:   ${JSON.stringify(settings.importToOutlook)},
+          importToiCloud:    ${JSON.stringify(settings.importToiCloud)},
+          includeOpenShifts: ${JSON.stringify(settings.includeOpenShifts)},
+          icloudEmail:       ${JSON.stringify(settings.icloudEmail)},
+          icloudAppPassword: ${JSON.stringify(settings.icloudAppPassword)},
+        });
       })()`,
       true
     );
