@@ -9,7 +9,10 @@ sleep 1
 # Start VNC server — connect on port 5900 for the initial Teams login
 x11vnc -display :99 -forever -nopw -quiet &
 
-echo "[entrypoint] Container ready. VNC on port 5900 for initial Teams login."
+# Start HTTP server for force-sync and status
+node /app/runner/server.js &
+
+echo "[entrypoint] Container ready. VNC on port 5900, force-sync at http://10.0.8.188:8080"
 echo "[entrypoint] Running first sync..."
 
 # Run immediately on startup
