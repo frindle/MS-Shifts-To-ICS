@@ -267,6 +267,9 @@ async function fetchShifts() {
 }
 
 async function runExport({ auto = false, skipICloud = false } = {}) {
+  const { syncRunning } = await chrome.storage.local.get('syncRunning');
+  if (syncRunning) return { success: false, error: 'Sync already in progress' };
+
   const stopWatchdog = startWatchdog(120000);
   try {
     chrome.storage.local.set({ lastError: null });
@@ -317,15 +320,15 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (auto) {
       chrome.notifications.create('sync-failed', {
         type: 'basic',
-        iconUrl: 'icon.png',
+        iconUrl: 'icon128.png',
         title: 'Teams Shifts — Sync Failed',
         message: errMsg,
       });
     }
+    clearProgress();
     return { success: false, error: errMsg };
   } finally {
     stopWatchdog();
-    clearProgress();
   }
 }
 
@@ -511,81 +514,6 @@ function isEligibleOpenShift(openShift, scheduledShifts) {
     if (gap < minGapMs) return false;
   }
   return true;
-}
-
-// ─── Load Polling Helpers ─────────────────────────────────────────────────────
-
-// Wait for the tab to reach "complete" status (handles post-reload settling).
-async function waitForTabComplete(tabId, timeoutMs = 10000) {
-  await sleep(600); // let any in-flight navigation begin before we start polling
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.status === 'complete') return;
-    } catch {}
-    await sleep(400);
-  }
-}
-
-// Poll until Teams sidebar navigation elements are available in the top frame
-async function waitForTeamsReady(tabId, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const [r] = await chrome.scripting.executeScript({
-        target: { tabId, frameIds: [0] },
-        func: () => !!(
-          document.querySelector('[aria-label*="Shifts" i][role="button"]') ||
-          document.querySelector('[aria-label*="more" i][role="button"]') ||
-          document.querySelector('[aria-label*="Apps" i][role="button"]') ||
-          document.querySelector('button[aria-label^="Account manager for"]')
-        ),
-      });
-      if (r?.result) return;
-    } catch {}
-    await sleep(500);
-  }
-  throw new Error('Timed out waiting for Teams to load');
-}
-
-// Poll until the Shifts iframe (flw.teams.cloud.microsoft) appears, return its frame record
-async function waitForShiftsFrame(tabId, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const frames = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: () => window.location.href,
-      });
-      const frame = frames.find((f) => f.result && f.result.includes('flw.teams.cloud.microsoft'));
-      if (frame) return frame;
-    } catch {}
-    await sleep(500);
-  }
-  throw new Error('Timed out waiting for Shifts iframe');
-}
-
-// Poll until the Shifts week-navigation UI is visible inside the iframe
-async function waitForShiftsReady(tabId, frameId, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const [r] = await chrome.scripting.executeScript({
-        target: { tabId, frameIds: [frameId] },
-        func: () => !!(
-          document.querySelector('button[aria-label="Go to next week"]') ||
-          document.querySelector('button[aria-label*="Pick a date"]') ||
-          document.querySelector('button[aria-label*="Your shifts" i]') ||
-          document.querySelector('[data-tid="your-shifts-tab"]') ||
-          document.querySelector('[data-tid="yourShifts-tab"]')
-        ),
-      });
-      if (r?.result) return;
-    } catch {}
-    await sleep(500);
-  }
-  throw new Error('Timed out waiting for Shifts UI to load');
 }
 
 // ─── iCloud CalDAV Sync ───────────────────────────────────────────────────────
@@ -902,6 +830,9 @@ async function clearAndResyncToiCloud() {
   // are sufficient. Using Promise.race causes a goroutine leak where syncEvents
   // continues running after timeout and saves syncedOpenShiftUids to storage,
   // marking open shifts as "already synced" even though they never reached iCloud.
+  const { syncRunning } = await chrome.storage.local.get('syncRunning');
+  if (syncRunning) return { success: false, error: 'Sync already in progress' };
+
   try {
     const { icloudEmail, icloudAppPassword, lastEvents } = await chrome.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
     if (!icloudEmail || !icloudAppPassword) {
@@ -994,6 +925,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     chrome.storage.local.set({ includeOpenShifts: msg.value });
+    return false;
+  }
+
+  if (msg.action === 'SET_IMPORT_TO_ICLOUD') {
+    chrome.storage.local.set({ importToiCloud: msg.value });
     return false;
   }
 

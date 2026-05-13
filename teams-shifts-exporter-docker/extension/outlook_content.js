@@ -215,6 +215,7 @@
     let calendarId    = null;
     let isPascal      = false; // true = Outlook REST API (PascalCase), false = Graph API
     let calendarIsNew = false; // true when we just created the calendar from scratch
+    const userTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
     outer:
     for (const token of tokens) {
@@ -278,7 +279,6 @@
       const idKey       = isPascal ? 'Id' : 'id';
       const selectParam = isPascal ? 'Id,Subject,Start,Categories' : 'id,subject,start,categories';
       // Request times in the user's local timezone so they match ICS local times
-      const userTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
       const viewHeaders = { ...headers, 'Prefer': `outlook.timezone="${userTZ}"` };
       const viewResp = await fetch(
         `${apiBase}/me/calendars/${calendarId}/calendarView` +
@@ -377,10 +377,7 @@
       return 0;
     }
 
-    // ── Batch-create (max 20 per request) ────────────────────────────────────
-    // ICS times from toICSDate() are LOCAL time (no Z suffix), so we must
-    // tell the API the user's actual timezone, not "UTC".
-    const userTZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    // ── Batch-create (max 20 per request) — times already in userTZ from above
     let created = 0;
     for (let i = 0; i < newEvents.length; i += 20) {
       const chunk    = newEvents.slice(i, i + 20);

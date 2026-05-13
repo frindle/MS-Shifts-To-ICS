@@ -324,7 +324,6 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     return { success: false, error: errMsg };
   } finally {
     stopWatchdog();
-    clearProgress();
   }
 }
 
@@ -889,6 +888,9 @@ class iCloudCalDAVClient {
 }
 
 async function clearAndResyncToiCloud() {
+  const { syncRunning } = await browser.storage.local.get('syncRunning');
+  if (syncRunning) return { success: false, error: 'Sync already in progress' };
+
   try {
     const { icloudEmail, icloudAppPassword, lastEvents } = await browser.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
     if (!icloudEmail || !icloudAppPassword) {
