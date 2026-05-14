@@ -25,16 +25,16 @@
       );
       if (calItems.length === 0) continue;
 
-      for (const item of calItems) {
-        const label = (item.getAttribute('aria-label') || '').toLowerCase();
-        const checked = item.getAttribute('aria-checked') === 'true';
+       for (const item of calItems) {
+         const label = (item.getAttribute('aria-label') || '').toLowerCase();
+         const checked = item.getAttribute('aria-checked') === 'true';
 
-        if (label.includes(TARGET_CALENDAR.toLowerCase())) {
-          if (!checked) item.click();
-        } else if (label.includes('calendar')) {
-          if (checked) item.click();
-        }
-      }
+         if (label.includes(TARGET_CALENDAR.toLowerCase())) {
+           if (!checked) item.click();
+         } else if (label.includes('calendar') && !label.includes(TARGET_CALENDAR.toLowerCase())) {
+           if (checked) item.click();
+         }
+       }
       console.info('[ShiftsExport] Auto-focused Work Shifts calendar');
       return;
     }

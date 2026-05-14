@@ -33,8 +33,8 @@
         if (label.includes(TARGET_CALENDAR.toLowerCase())) {
           // Ensure Work Shifts is checked
           if (!checked) item.click();
-        } else if (label.includes('calendar')) {
-          // Uncheck other calendars (e.g. "Calendar", "United States holidays")
+        } else if (label.includes('calendar') && !label.includes(TARGET_CALENDAR.toLowerCase())) {
+          // Uncheck other calendars (e.g. "Calendar", "United States holidays") but NOT Work Shifts
           if (checked) item.click();
         }
       }

@@ -17,7 +17,9 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         const url = new URL(details.url);
         const region = url.pathname.split('/').filter(Boolean)[0];
         if (region) capturedApiBase = `${url.origin}/${region}/api`;
-      } catch {}
+      } catch (e) {
+        console.error('[ShiftsExport] webRequest parse error:', e);
+      }
     }
   },
   { urls: ['https://flw.teams.cloud.microsoft/*'] },
@@ -771,6 +773,8 @@ class iCloudCalDAVClient {
         await checkCancelled();
         if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
         await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+        // Pace requests to avoid iCloud rate-limiting
+        await sleep(250);
       }
     }
 

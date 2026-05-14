@@ -33,10 +33,12 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
-### v1.51
-- Firefox: added Download ICS File button (was Chrome-only)
-- Firefox: cancel sync now immediately hides the progress bar and shows a "Sync cancelled" message instead of leaving the UI in a disabled state
-- Chrome: increased spacing above Clear & Re-import button
+### v1.52
+- Fixed Firefox cancel sync button causing popup to close
+- Fixed Outlook calendar auto-focus unfocusing the Work Shifts calendar itself
+- Fixed Chrome/Docker iCloud upload rate limiting (added missing delays)
+- Improved error logging in background scripts for better debugging
+- General stability improvements
 
 ### v1.26
 - Added TDO (Time off) support: TDO blocks are now exported as all-day calendar events with any notes included in the description

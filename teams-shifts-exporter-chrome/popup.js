@@ -107,7 +107,9 @@ function hideProgress() {
   }
 }
 
-cancelSyncBtn.addEventListener('click', () => {
+cancelSyncBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   cancelSyncBtn.disabled = true;
   cancelSyncBtn.textContent = 'Cancelling…';
   chrome.runtime.sendMessage({ action: 'CANCEL_SYNC' });
