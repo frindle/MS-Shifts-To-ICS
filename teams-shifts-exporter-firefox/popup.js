@@ -158,9 +158,14 @@ function setICloudCredsCollapsed(collapsed, email) {
 }
 
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
   (data) => {
-    if (data.lastError) {
+    // Only show error if it's recent (occurred after last successful export)
+    const hasRecentError = data.lastError && (
+      !data.lastExportSuccess || !data.lastErrorTime ||
+      data.lastErrorTime > data.lastExportSuccess
+    );
+    if (hasRecentError) {
       logEl.textContent = `Last sync failed: ${data.lastError}`;
       logEl.className = '';
     }

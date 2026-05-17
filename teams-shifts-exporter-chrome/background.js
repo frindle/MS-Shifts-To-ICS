@@ -209,7 +209,10 @@ async function fetchShifts() {
     const teamsData = JSON.parse(teamsText);
     const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
     const teamIds = teamList.map((t) => t.team?.id || t.id || t.teamId).filter(Boolean);
-    if (!teamIds.length) throw new Error(`No teams found. Keys: ${Object.keys(teamsData||{}).join(',')} Sample: ${JSON.stringify(teamsData).slice(0,400)}`);
+    if (!teamIds.length) {
+      console.warn('[ShiftsExport] No teams found. Keys:', Object.keys(teamsData||{}), 'Sample:', JSON.stringify(teamsData).slice(0,400));
+      throw new Error('No teams found in Shifts. Make sure you have a schedule set up in Teams Shifts.');
+    }
 
     const startTime = new Date();
     startTime.setHours(0, 0, 0, 0);
@@ -310,7 +313,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     }
 
     // Update last export time and store ICS for clear & re-import
-    await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents });
+    await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents, lastExportSuccess: Date.now() });
 
     chrome.storage.local.set({ lastError: null });
     clearProgress();
@@ -318,7 +321,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     const errMsg = err?.message || (typeof err === 'string' ? err : '') || err?.name || 'Unknown error';
-    chrome.storage.local.set({ lastError: errMsg });
+    chrome.storage.local.set({ lastError: errMsg, lastErrorTime: Date.now() });
     if (auto) {
       chrome.notifications.create('sync-failed', {
         type: 'basic',
@@ -418,7 +421,18 @@ async function mergeWithHistory(newEvents) {
   const { storedEvents = [], excludedStartMs = [] } = await chrome.storage.local.get(['storedEvents', 'excludedStartMs']);
   const excluded = new Set(excludedStartMs);
 
-  const pastStored = storedEvents.filter((e) => e.endMs < now && !excluded.has(e.startMs));
+  // Validate storedEvents is an array with expected shape
+  if (!Array.isArray(storedEvents)) {
+    console.warn('[ShiftsExport] storedEvents corrupted, resetting');
+    await chrome.storage.local.set({ storedEvents: [] });
+    return newEvents.filter((e) => !excluded.has(e.startMs));
+  }
+
+  const pastStored = storedEvents.filter((e) => {
+    if (!e || typeof e !== 'object') return false;
+    if (typeof e.startMs !== 'number' || typeof e.endMs !== 'number') return false;
+    return e.endMs < now && !excluded.has(e.startMs);
+  });
   const filtered = newEvents.filter((e) => !excluded.has(e.startMs));
   const merged = deduplicateEvents([...pastStored, ...filtered]);
 

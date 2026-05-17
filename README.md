@@ -38,6 +38,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 - Fixed Outlook calendar auto-focus unfocusing the Work Shifts calendar itself
 - Fixed Chrome/Docker iCloud upload rate limiting (added missing delays)
 - Improved error logging in background scripts for better debugging
+- Error messages no longer persist across browser restarts (stale errors auto-clear)
+- Fixed potential crash when stored history data is corrupted (now validates and resets gracefully)
+- Improved "No teams found" error to suggest checking if schedule is set up in Teams
 - General stability improvements
 
 ### v1.26
