@@ -239,6 +239,34 @@ async function fetchShifts() {
     includeDraft: 'true',
   });
 
+    // Fetch open shift sign-up requests to know which availability slots the user has signed up for
+    const signedUpOpenShiftIds = new Set();
+    const tenantId = getTenantIdFromHeaders(capturedShiftsHeaders);
+    if (tenantId) {
+      for (const teamId of teamIds) {
+        try {
+          const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${teamId}/shifts/open/requests?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+          const reqResp = await fetch(reqUrl, { headers });
+          if (reqResp.ok) {
+            const reqText = await reqResp.text();
+            if (!reqText.trimStart().startsWith('<')) {
+              const reqData = JSON.parse(reqText);
+              const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
+              for (const req of requests) {
+                const state = req.state || req.requestState;
+                const shiftId = req.shiftId || req.openShiftId;
+                if (shiftId && (state === 'WaitingOnManager' || state === 'ManagerApproved' || state === 'pending' || state === 'approved')) {
+                  signedUpOpenShiftIds.add(shiftId);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[ShiftsExport] Could not fetch availability sign-up requests:', e.message);
+        }
+      }
+    }
+
     const parseShiftItem = (item) => {
       const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
       const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
@@ -270,7 +298,7 @@ async function fetchShifts() {
       }
       for (const shift of (data.openShifts || data.OpenShifts || [])) {
         const parsed = parseShiftItem(shift);
-        if (parsed) events.push({ ...parsed, isOpenShift: true });
+        if (parsed) events.push({ ...parsed, isOpenShift: true, isAvailabilitySignup: signedUpOpenShiftIds.has(shift.id) });
       }
       for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
         const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
@@ -309,9 +337,13 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
     } else {
-      events = events.filter((e) => !e.isOpenShift || !/^\d{4}\b/.test(e.summary));
       const scheduled = events.filter((e) => !e.isOpenShift);
-      events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
+      events = events.filter((e) => {
+        if (!e.isOpenShift) return true;
+        if (e.isAvailabilitySignup) return true;
+        if (/^\d{4}\b/.test(e.summary)) return false;
+        return isEligibleOpenShift(e, scheduled);
+      });
     }
 
     const mergedEvents = await mergeWithHistory(events);
@@ -469,7 +501,7 @@ function generateICS(events) {
   ];
 
   events.forEach((ev, i) => {
-    const summaryText = ev.isOpenShift ? `OPEN: ${ev.summary}` : ev.summary;
+    const summaryText = ev.isAvailabilitySignup ? `Signed Up: ${ev.summary}` : ev.isOpenShift ? `OPEN: ${ev.summary}` : ev.summary;
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:teams-shift-${ev.startMs}-${i}@shifts-export`);
     lines.push(`DTSTAMP:${toICSDate(Date.now())}`);
@@ -525,6 +557,17 @@ async function downloadICS(icsContent, filename) {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function getTenantIdFromHeaders(headers) {
+  const authHeader = headers.find((h) => h.name.toLowerCase() === 'authorization');
+  if (!authHeader) return null;
+  try {
+    const parts = authHeader.value.replace('Bearer ', '').split('.');
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/') + '=='));
+    return payload.tid || null;
+  } catch { return null; }
 }
 
 // ─── Load Polling Helpers ─────────────────────────────────────────────────────
@@ -628,7 +671,7 @@ function toICSDateStr(ms) {
 
 // Build a single-event VCALENDAR block for CalDAV PUT
 function buildSingleEventICS(event, uid) {
-  const summaryText = event.isOpenShift ? `OPEN: ${event.summary}` : event.summary;
+  const summaryText = event.isAvailabilitySignup ? `Signed Up: ${event.summary}` : event.isOpenShift ? `OPEN: ${event.summary}` : event.summary;
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -835,7 +878,7 @@ class iCloudCalDAVClient {
     // Pre-calculate how many events will actually be uploaded so the fraction
     // fills 0→1 over real uploads, not skipped open shifts.
     const total = events.filter((e) => {
-      if (!e.isOpenShift) return true;
+      if (!e.isOpenShift || e.isAvailabilitySignup) return true;
       const uid = `teams-shift-${e.startMs}-${e.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
       return !syncedOpenShiftUids.has(uid);
     }).length || 1;
@@ -844,7 +887,7 @@ class iCloudCalDAVClient {
       const uid = `teams-shift-${event.startMs}-${event.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
       currentUids.add(uid);
 
-      if (event.isOpenShift) {
+      if (event.isOpenShift && !event.isAvailabilitySignup) {
         // Only add open shifts we haven't pushed before
         if (!syncedOpenShiftUids.has(uid)) {
           await checkCancelled();

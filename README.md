@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.57
+- Availability sign-up slots you've signed up for now appear on your calendar with a "Signed Up: [shift]" prefix — previously all bare time-code open shifts were filtered out regardless of sign-up status
+
 ### v1.56
 - Fixed future shifts missing from ICS/iCloud — API responses are paginated via `nextLink`; previous code only read the first page (which was full of availability sign-up shifts), so scheduled shifts on page 2+ were silently dropped
 
