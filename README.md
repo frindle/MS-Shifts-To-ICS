@@ -33,6 +33,10 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.58
+- Added "Include signed-up availability slots" toggle (default off) — controls whether slots you've signed up for appear on your calendar
+- Changed "Include open shifts" toggle to default off (was previously on by default)
+
 ### v1.57
 - Availability sign-up slots you've signed up for now appear on your calendar with a "Signed Up: [shift]" prefix — previously all bare time-code open shifts were filtered out regardless of sign-up status
 

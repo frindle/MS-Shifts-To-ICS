@@ -333,18 +333,15 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     await checkCancelled();
     setProgress('Processing shifts...', 70);
 
-    const { includeOpenShifts } = await browser.storage.local.get('includeOpenShifts');
-    if (includeOpenShifts === false) {
-      events = events.filter((e) => !e.isOpenShift);
-    } else {
-      const scheduled = events.filter((e) => !e.isOpenShift);
-      events = events.filter((e) => {
-        if (!e.isOpenShift) return true;
-        if (e.isAvailabilitySignup) return true;
-        if (/^\d{4}\b/.test(e.summary)) return false;
-        return isEligibleOpenShift(e, scheduled);
-      });
-    }
+    const { includeOpenShifts, includeSignedUpSlots } = await browser.storage.local.get(['includeOpenShifts', 'includeSignedUpSlots']);
+    const scheduled = events.filter((e) => !e.isOpenShift);
+    events = events.filter((e) => {
+      if (!e.isOpenShift) return true;
+      if (e.isAvailabilitySignup) return includeSignedUpSlots === true;
+      if (includeOpenShifts !== true) return false;
+      if (/^\d{4}\b/.test(e.summary)) return false;
+      return isEligibleOpenShift(e, scheduled);
+    });
 
     const mergedEvents = await mergeWithHistory(events);
     const mergedICS = generateICS(mergedEvents);
@@ -1043,6 +1040,10 @@ browser.runtime.onMessage.addListener((msg) => {
 
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     return browser.storage.local.set({ includeOpenShifts: msg.value });
+  }
+
+  if (msg.action === 'SET_INCLUDE_SIGNED_UP_SLOTS') {
+    return browser.storage.local.set({ includeSignedUpSlots: msg.value });
   }
 
   if (msg.action === 'DOWNLOAD_ICS') {
