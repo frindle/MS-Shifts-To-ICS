@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.56
+- Fixed future shifts missing from ICS/iCloud — API responses are paginated via `nextLink`; previous code only read the first page (which was full of availability sign-up shifts), so scheduled shifts on page 2+ were silently dropped
+
 ### v1.55
 - Exclude availability sign-up open shifts (titles that are bare time codes like "1430 DX" or "0015 DX/DXC") — real posted open shifts with position prefixes like "P2 1245" are still included
 

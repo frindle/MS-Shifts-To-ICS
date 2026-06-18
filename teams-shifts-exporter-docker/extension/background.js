@@ -227,29 +227,6 @@ async function fetchShifts() {
       includeDraft: 'true',
     });
 
-    const shiftsUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
-    const shiftsResp = await fetch(shiftsUrl, { headers });
-    const shiftsText = await shiftsResp.text();
-    if (!shiftsResp.ok || shiftsText.trimStart().startsWith('<')) {
-      capturedShiftsHeaders = null;
-      if (attempt === 0) continue;
-      throw new Error(`Shifts API ${shiftsResp.status}: ${shiftsText.slice(0, 200)}`);
-    }
-    const data = JSON.parse(shiftsText);
-
-    // Debug: log API response shape so we can identify distinguishing fields
-    // on new shift types (e.g. availability sign-up shifts). Stored for popup inspection.
-    const openShiftSample = (data.openShifts || data.OpenShifts || []).slice(0, 3);
-    const debugInfo = {
-      apiKeys: Object.keys(data),
-      openShiftCount: (data.openShifts || data.OpenShifts || []).length,
-      openShiftSample,
-    };
-    chrome.storage.local.set({ debugOpenShifts: debugInfo });
-    console.log('[ShiftsExport] API keys:', debugInfo.apiKeys);
-    console.log('[ShiftsExport] Open shift sample:', JSON.stringify(openShiftSample, null, 2));
-
-    const events = [];
     const parseShiftItem = (item) => {
       const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
       const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
@@ -261,24 +238,48 @@ async function fetchShifts() {
       return { startMs: start.getTime(), endMs: end.getTime(), summary, notes, isAllDay };
     };
 
-    for (const shift of (data.shifts || data.Shifts || [])) {
-      const parsed = parseShiftItem(shift);
-      if (parsed) events.push({ ...parsed, isOpenShift: false });
-    }
-    for (const shift of (data.openShifts || data.OpenShifts || [])) {
-      const parsed = parseShiftItem(shift);
-      if (parsed) events.push({ ...parsed, isOpenShift: true });
-    }
-    for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
-      const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
-      if (!startStr) continue;
-      const start = new Date(startStr);
-      const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
-      const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-      const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
-      events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
+    const events = [];
+    let nextUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
+    let pageCount = 0;
+
+    while (nextUrl && pageCount < 20) {
+      const resp = await fetch(nextUrl, { headers });
+      const text = await resp.text();
+      if (!resp.ok || text.trimStart().startsWith('<')) {
+        capturedShiftsHeaders = null;
+        if (attempt === 0) { nextUrl = null; break; }
+        throw new Error(`Shifts API ${resp.status}: ${text.slice(0, 200)}`);
+      }
+      const data = JSON.parse(text);
+
+      if (pageCount === 0) {
+        const openShiftSample = (data.openShifts || data.OpenShifts || []).slice(0, 3);
+        chrome.storage.local.set({ debugOpenShifts: { apiKeys: Object.keys(data), openShiftCount: (data.openShifts || data.OpenShifts || []).length, openShiftSample } });
+      }
+
+      for (const shift of (data.shifts || data.Shifts || [])) {
+        const parsed = parseShiftItem(shift);
+        if (parsed) events.push({ ...parsed, isOpenShift: false });
+      }
+      for (const shift of (data.openShifts || data.OpenShifts || [])) {
+        const parsed = parseShiftItem(shift);
+        if (parsed) events.push({ ...parsed, isOpenShift: true });
+      }
+      for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
+        const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
+        if (!startStr) continue;
+        const start = new Date(startStr);
+        const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
+        const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
+        const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
+        events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
+      }
+
+      nextUrl = data.nextLink || data['@odata.nextLink'] || null;
+      pageCount++;
     }
 
+    if (attempt === 0 && events.length === 0) { capturedShiftsHeaders = null; continue; }
     return events;
   }
 }
