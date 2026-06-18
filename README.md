@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.53
+- Fixed "Download ICS" button throwing `TypeError: Cannot read properties of undefined (reading 'download')` — `chrome.downloads` is not available in offscreen documents; switched to anchor-click on blob URL
+
 ### v1.52
 - Fixed Firefox cancel sync button causing popup to close
 - Fixed Outlook calendar auto-focus unfocusing the Work Shifts calendar itself
