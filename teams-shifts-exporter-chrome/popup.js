@@ -152,6 +152,13 @@ function setICloudCredsCollapsed(collapsed) {
   icloudCredsChevronEl.classList.toggle('open', !collapsed);
 }
 
+chrome.storage.local.get('debugOpenShifts', (d) => {
+  const pre = document.getElementById('debugPre');
+  if (pre && d.debugOpenShifts) {
+    pre.textContent = JSON.stringify(d.debugOpenShifts, null, 2);
+  }
+});
+
 chrome.storage.local.get(
   ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
   (data) => {

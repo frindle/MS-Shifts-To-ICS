@@ -237,6 +237,18 @@ async function fetchShifts() {
     }
     const data = JSON.parse(shiftsText);
 
+    // Debug: log API response shape so we can identify distinguishing fields
+    // on new shift types (e.g. availability sign-up shifts). Stored for popup inspection.
+    const openShiftSample = (data.openShifts || data.OpenShifts || []).slice(0, 3);
+    const debugInfo = {
+      apiKeys: Object.keys(data),
+      openShiftCount: (data.openShifts || data.OpenShifts || []).length,
+      openShiftSample,
+    };
+    chrome.storage.local.set({ debugOpenShifts: debugInfo });
+    console.log('[ShiftsExport] API keys:', debugInfo.apiKeys);
+    console.log('[ShiftsExport] Open shift sample:', JSON.stringify(openShiftSample, null, 2));
+
     const events = [];
     const parseShiftItem = (item) => {
       const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);

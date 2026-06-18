@@ -107,7 +107,9 @@ function hideProgress() {
   }
 }
 
-cancelSyncBtn.addEventListener('click', () => {
+cancelSyncBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
   cancelSyncBtn.disabled = true;
   cancelSyncBtn.textContent = 'Cancelling…';
   chrome.runtime.sendMessage({ action: 'CANCEL_SYNC' });
@@ -150,10 +152,22 @@ function setICloudCredsCollapsed(collapsed) {
   icloudCredsChevronEl.classList.toggle('open', !collapsed);
 }
 
+chrome.storage.local.get('debugOpenShifts', (d) => {
+  const pre = document.getElementById('debugPre');
+  if (pre && d.debugOpenShifts) {
+    pre.textContent = JSON.stringify(d.debugOpenShifts, null, 2);
+  }
+});
+
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
   (data) => {
-    if (data.lastError) {
+    // Only show error if it's recent (occurred after last successful export)
+    const hasRecentError = data.lastError && (
+      !data.lastExportSuccess || !data.lastErrorTime ||
+      data.lastErrorTime > data.lastExportSuccess
+    );
+    if (hasRecentError) {
       logEl.textContent = `Last sync failed: ${data.lastError}`;
       logEl.className = '';
     }
