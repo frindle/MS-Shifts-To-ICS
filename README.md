@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.54
+- Added open shift debug data panel in popup (▸ Open shift debug data) to inspect raw API fields after sync — needed to identify how new availability sign-up shifts differ from regular open shifts
+
 ### v1.53
 - Fixed "Download ICS" button throwing `TypeError: Cannot read properties of undefined (reading 'download')` — `chrome.downloads` is not available in offscreen documents; switched to anchor-click on blob URL
 
