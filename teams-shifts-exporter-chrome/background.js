@@ -302,6 +302,9 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
     } else {
+      // Exclude availability sign-up shifts — their titles are bare time codes like
+      // "1430 DX" or "0015 DX/DXC". Real posted open shifts have a position prefix (e.g. "P2 1245").
+      events = events.filter((e) => !e.isOpenShift || !/^\d{4}\b/.test(e.summary));
       const scheduled = events.filter((e) => !e.isOpenShift);
       events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
     }
