@@ -146,6 +146,7 @@ targetDateEl.textContent = target.toLocaleDateString(undefined, {
 
 // Load last export status
 const includeOpenShiftsEl = document.getElementById('includeOpenShifts');
+const includeSignedUpSlotsEl = document.getElementById('includeSignedUpSlots');
 
 function setICloudCredsCollapsed(collapsed) {
   icloudCredsSectionEl.style.display = collapsed ? 'none' : 'block';
@@ -160,7 +161,7 @@ chrome.storage.local.get('debugOpenShifts', (d) => {
 });
 
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'includeSignedUpSlots', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
   (data) => {
     // Only show error if it's recent (occurred after last successful export)
     const hasRecentError = data.lastError && (
@@ -179,7 +180,8 @@ chrome.storage.local.get(
     if (data.importToOutlook) {
       importToOutlookEl.checked = true;
     }
-    includeOpenShiftsEl.checked = data.includeOpenShifts !== false;
+    includeOpenShiftsEl.checked = data.includeOpenShifts === true;
+    includeSignedUpSlotsEl.checked = data.includeSignedUpSlots === true;
 
     if (data.importToiCloud) {
       importToiCloudEl.checked = true;
@@ -246,6 +248,9 @@ saveICloudCredsBtn.addEventListener('click', () => {
 // Save open shifts toggles
 includeOpenShiftsEl.addEventListener('change', () => {
   chrome.runtime.sendMessage({ action: 'SET_INCLUDE_OPEN_SHIFTS', value: includeOpenShiftsEl.checked });
+});
+includeSignedUpSlotsEl.addEventListener('change', () => {
+  chrome.runtime.sendMessage({ action: 'SET_INCLUDE_SIGNED_UP_SLOTS', value: includeSignedUpSlotsEl.checked });
 });
 
 // ─── Export Button ────────────────────────────────────────────────────────────

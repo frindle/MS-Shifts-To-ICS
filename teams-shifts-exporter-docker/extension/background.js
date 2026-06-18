@@ -327,21 +327,15 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     setProgress('Processing shifts...', 70);
 
     // Filter open shifts based on user settings
-    const { includeOpenShifts } = await chrome.storage.local.get('includeOpenShifts');
-    if (includeOpenShifts === false) {
-      events = events.filter((e) => !e.isOpenShift);
-    } else {
-      const scheduled = events.filter((e) => !e.isOpenShift);
-      events = events.filter((e) => {
-        if (!e.isOpenShift) return true;
-        // Always include availability slots the user has signed up for
-        if (e.isAvailabilitySignup) return true;
-        // Exclude other availability sign-up slots (bare time codes like "1430 DX")
-        if (/^\d{4}\b/.test(e.summary)) return false;
-        // Eligibility check for real posted open shifts
-        return isEligibleOpenShift(e, scheduled);
-      });
-    }
+    const { includeOpenShifts, includeSignedUpSlots } = await chrome.storage.local.get(['includeOpenShifts', 'includeSignedUpSlots']);
+    const scheduled = events.filter((e) => !e.isOpenShift);
+    events = events.filter((e) => {
+      if (!e.isOpenShift) return true;
+      if (e.isAvailabilitySignup) return includeSignedUpSlots === true;
+      if (includeOpenShifts !== true) return false;
+      if (/^\d{4}\b/.test(e.summary)) return false;
+      return isEligibleOpenShift(e, scheduled);
+    });
 
     // Merge freshly scraped events with stored history, then rebuild ICS
     const mergedEvents = await mergeWithHistory(events);
@@ -1003,6 +997,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.action === 'SET_INCLUDE_OPEN_SHIFTS') {
     chrome.storage.local.set({ includeOpenShifts: msg.value });
+    return false;
+  }
+
+  if (msg.action === 'SET_INCLUDE_SIGNED_UP_SLOTS') {
+    chrome.storage.local.set({ includeSignedUpSlots: msg.value });
     return false;
   }
 
