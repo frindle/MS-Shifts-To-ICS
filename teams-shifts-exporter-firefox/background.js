@@ -301,6 +301,7 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
     if (includeOpenShifts === false) {
       events = events.filter((e) => !e.isOpenShift);
     } else {
+      events = events.filter((e) => !e.isOpenShift || !/^\d{4}\b/.test(e.summary));
       const scheduled = events.filter((e) => !e.isOpenShift);
       events = events.filter((e) => !e.isOpenShift || isEligibleOpenShift(e, scheduled));
     }
