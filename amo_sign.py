@@ -3,11 +3,27 @@
 
 import json, time, uuid, hashlib, hmac, base64, urllib.request, urllib.error, sys, os
 
-JWT_ISSUER = 'user:19808830:923'
-JWT_SECRET = 'f3c0b1b4ee9b726c42705982f836d51e889bf8ddefb4b856a88c99505acb1c24'
+def _load_env():
+    env = {}
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    env[k.strip()] = v.strip()
+    return env
+
+_env = _load_env()
+JWT_ISSUER = _env.get('AMO_JWT_ISSUER') or os.environ.get('AMO_JWT_ISSUER', '')
+JWT_SECRET = _env.get('AMO_JWT_SECRET') or os.environ.get('AMO_JWT_SECRET', '')
+if not JWT_ISSUER or not JWT_SECRET:
+    print('ERROR: AMO_JWT_ISSUER and AMO_JWT_SECRET must be set in .env or environment')
+    sys.exit(1)
 ADDON_ID = '2993651'
-XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.51.xpi'
-OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.51-signed.xpi'
+XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.55.xpi'
+OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.55-signed.xpi'
 BASE = 'https://addons.mozilla.org/api/v5'
 
 
@@ -87,7 +103,7 @@ def download(url, dest):
         f.write(r.read())
 
 
-TARGET_VERSION = '1.51'
+TARGET_VERSION = '1.55'
 print(f'=== AMO: Upload, sign, and download v{TARGET_VERSION} ===')
 
 # 1. Upload XPI
