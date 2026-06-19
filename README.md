@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.61
+- Fixed sign-up requests not being detected — tenant ID is now read directly from captured request URLs instead of relying on JWT decoding
+
 ### v1.60
 - Renamed toggle to "Sync sign-ups to Open Time Signup calendar" to make it clear sign-ups go to a separate calendar
 
