@@ -298,7 +298,8 @@ async function fetchShifts() {
     if (tenantId) {
       for (const teamId of teamIds) {
         try {
-          const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${teamId}/shifts/open/requests?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
+          // Try tenant/team-scoped endpoint without time params (API rejects them)
+          const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${teamId}/shifts/open/requests`;
           const reqResp = await fetch(reqUrl, { headers });
           const reqText = await reqResp.text();
           console.info('[ShiftsExport] sign-up requests status:', reqResp.status, 'body:', reqText.slice(0, 500));
