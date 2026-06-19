@@ -916,15 +916,28 @@ async function clearAndResyncToiCloud() {
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
     setProgress('Connecting to iCloud…', 68);
     await client.connect();
+    const regularEvents = lastEvents.filter(e => !e.isAvailabilitySignup);
+    const signupEvents = lastEvents.filter(e => e.isAvailabilitySignup);
+
     setProgress('Loading Work Shifts calendar…', 71);
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-    setProgress('Clearing iCloud calendar…', 74);
+    setProgress('Clearing Work Shifts calendar…', 73);
     await client.clearAllOurEvents(calendarUrl);
+
+    const signupCalendarUrl = await client.findOrCreateCalendar('Open Time Signup');
+    setProgress('Clearing Open Time Signup calendar…', 75);
+    await client.clearAllOurEvents(signupCalendarUrl);
+
     // Reset open shift tracking BEFORE re-syncing so all open shifts are re-added
     await chrome.storage.local.set({ syncedOpenShiftUids: [] });
-    await client.syncEvents(calendarUrl, lastEvents, (step, fraction) => {
-      setProgress(step, 80 + Math.round(fraction * 18)); // 80–98%
+    await client.syncEvents(calendarUrl, regularEvents, (step, fraction) => {
+      setProgress(step, 80 + Math.round(fraction * (signupEvents.length ? 9 : 18)));
     });
+    if (signupEvents.length) {
+      await client.syncEvents(signupCalendarUrl, signupEvents, (step, fraction) => {
+        setProgress(step, 89 + Math.round(fraction * 9));
+      });
+    }
     console.info('[ShiftsExport] iCloud clear & resync complete —', lastEvents.length, 'events');
     return { success: true };
   } catch (err) {
@@ -949,11 +962,24 @@ async function syncToiCloud(events) {
     const client = new iCloudCalDAVClient(icloudEmail, icloudAppPassword);
     setProgress('Connecting to iCloud…', 75);
     await client.connect();
+
+    const regularEvents = events.filter(e => !e.isAvailabilitySignup);
+    const signupEvents = events.filter(e => e.isAvailabilitySignup);
+
     setProgress('Loading Work Shifts calendar…', 79);
     const calendarUrl = await client.findOrCreateCalendar('Work Shifts');
-    await client.syncEvents(calendarUrl, events, (step, fraction) => {
-      setProgress(step, 83 + Math.round(fraction * 14)); // 83–97%
+    await client.syncEvents(calendarUrl, regularEvents, (step, fraction) => {
+      setProgress(step, 83 + Math.round(fraction * (signupEvents.length ? 7 : 14)));
     });
+
+    if (signupEvents.length) {
+      setProgress('Loading Open Time Signup calendar…', 90);
+      const signupCalendarUrl = await client.findOrCreateCalendar('Open Time Signup');
+      await client.syncEvents(signupCalendarUrl, signupEvents, (step, fraction) => {
+        setProgress(step, 90 + Math.round(fraction * 7));
+      });
+    }
+
     console.info('[ShiftsExport] iCloud sync complete —', events.length, 'events');
     return { success: true };
   } catch (err) {
