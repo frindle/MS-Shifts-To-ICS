@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.62
+- Fixed tenant ID detection — now reads from Teams API response and intercepted request URLs, with JWT decode as fallback (fixes sign-up requests not being fetched)
+
 ### v1.61
 - Fixed sign-up requests not being detected — tenant ID is now read directly from captured request URLs instead of relying on JWT decoding
 
