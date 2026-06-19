@@ -298,35 +298,47 @@ async function fetchShifts() {
       pageCount++;
     }
 
-    // Fetch sign-up requests — openShiftChangeRequests returns the open shifts this user has signed up for
+    // Fetch shift requests — shiftrequests returns pending open-shift sign-up requests (requestType: "Open")
     const signedUpOpenShiftIds = new Set();
     const tenantId = capturedTenantId || getTenantIdFromHeaders(capturedShiftsHeaders);
     if (tenantId) {
       for (const tid of teamIds) {
         let skipToken = null;
+        let page = 0;
         do {
           try {
-            const reqUrl = skipToken
-              ? `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/openShiftChangeRequests?skipToken=${encodeURIComponent(skipToken)}`
-              : `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/openShiftChangeRequests`;
+            let reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shiftrequests?count=25`;
+            if (skipToken) reqUrl += `&skipToken=${encodeURIComponent(skipToken)}`;
             const reqResp = await fetch(reqUrl, { headers });
             if (!reqResp.ok) { skipToken = null; break; }
             const reqData = await reqResp.json();
-            for (const shift of (reqData.openShifts || [])) {
-              if (shift.id) signedUpOpenShiftIds.add(shift.id);
+            const requests = reqData.requests || reqData.shiftRequests || reqData.value || [];
+            for (const req of requests) {
+              const openShiftId = req.openShiftId || req.associatedOpenShiftId || req.shiftId;
+              if (openShiftId && /^OPNSHFT_/.test(openShiftId)) signedUpOpenShiftIds.add(openShiftId);
             }
             skipToken = reqData.skipToken || null;
+            page++;
           } catch (e) {
-            console.warn('[ShiftsExport] openShiftChangeRequests error for team', tid, ':', e.message);
+            console.warn('[ShiftsExport] shiftrequests error for team', tid, ':', e.message);
             skipToken = null;
           }
-        } while (skipToken);
+        } while (skipToken && page < 20);
       }
     }
 
     // Add open shifts to events now that signedUpOpenShiftIds is populated
     for (const { parsed, id } of rawOpenShifts) {
-      events.push({ ...parsed, isOpenShift: true, isAvailabilitySignup: signedUpOpenShiftIds.has(id) });
+      if (signedUpOpenShiftIds.has(id)) {
+        const d = new Date(parsed.startMs);
+        const de = new Date(parsed.endMs);
+        const pad = (n) => String(n).padStart(2, '0');
+        const timeStr = `${pad(d.getHours())}${pad(d.getMinutes())}`;
+        const dayStart = new Date(d); dayStart.setHours(0, 0, 0, 0);
+        events.push({ ...parsed, summary: `Avl ${timeStr}`, startMs: dayStart.getTime(), endMs: dayStart.getTime() + 86400000, isOpenShift: true, isAvailabilitySignup: true, isAllDay: true });
+      } else {
+        events.push({ ...parsed, isOpenShift: true, isAvailabilitySignup: false });
+      }
     }
 
     if (attempt === 0 && events.length === 0) { capturedShiftsHeaders = null; continue; }
@@ -513,7 +525,7 @@ function generateICS(events) {
   ];
 
   events.forEach((ev, i) => {
-    const summaryText = ev.isAvailabilitySignup ? `Signed Up: ${ev.summary}` : ev.isOpenShift ? `OPEN: ${ev.summary}` : ev.summary;
+    const summaryText = ev.isOpenShift ? (ev.isAvailabilitySignup ? ev.summary : `OPEN: ${ev.summary}`) : ev.summary;
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:teams-shift-${ev.startMs}-${i}@shifts-export`);
     lines.push(`DTSTAMP:${toICSDate(Date.now())}`);
@@ -685,7 +697,7 @@ function toICSDateStr(ms) {
 
 // Build a single-event VCALENDAR block for CalDAV PUT
 function buildSingleEventICS(event, uid) {
-  const summaryText = event.isAvailabilitySignup ? `Signed Up: ${event.summary}` : event.isOpenShift ? `OPEN: ${event.summary}` : event.summary;
+  const summaryText = event.isOpenShift ? (event.isAvailabilitySignup ? event.summary : `OPEN: ${event.summary}`) : event.summary;
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
