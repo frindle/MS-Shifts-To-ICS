@@ -300,17 +300,17 @@ async function fetchShifts() {
         try {
           const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${teamId}/shifts/open/requests?startTime=${startTime.toISOString()}&endTime=${endTime.toISOString()}`;
           const reqResp = await fetch(reqUrl, { headers });
-          if (reqResp.ok) {
-            const reqText = await reqResp.text();
-            if (!reqText.trimStart().startsWith('<')) {
-              const reqData = JSON.parse(reqText);
-              const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
-              for (const req of requests) {
-                const state = req.state || req.requestState;
-                const shiftId = req.shiftId || req.openShiftId;
-                if (shiftId && (state === 'WaitingOnManager' || state === 'ManagerApproved' || state === 'pending' || state === 'approved')) {
-                  signedUpOpenShiftIds.add(shiftId);
-                }
+          const reqText = await reqResp.text();
+          console.info('[ShiftsExport] sign-up requests status:', reqResp.status, 'body:', reqText.slice(0, 500));
+          if (reqResp.ok && !reqText.trimStart().startsWith('<')) {
+            const reqData = JSON.parse(reqText);
+            const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
+            console.info('[ShiftsExport] sign-up requests parsed:', JSON.stringify(requests).slice(0, 500));
+            for (const req of requests) {
+              const state = req.state || req.requestState;
+              const shiftId = req.shiftId || req.openShiftId;
+              if (shiftId && (state === 'WaitingOnManager' || state === 'ManagerApproved' || state === 'pending' || state === 'approved')) {
+                signedUpOpenShiftIds.add(shiftId);
               }
             }
           }
