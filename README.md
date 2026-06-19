@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.63
+- Fixed sign-up detection — pagination now runs first so tenantId can be extracted directly from open shift objects, then sign-up requests are fetched with the correct ID
+
 ### v1.62
 - Fixed tenant ID detection — now reads from Teams API response and intercepted request URLs, with JWT decode as fallback (fixes sign-up requests not being fetched)
 

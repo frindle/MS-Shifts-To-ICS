@@ -248,7 +248,57 @@ async function fetchShifts() {
     includeDraft: 'true',
   });
 
-    // Fetch open shift sign-up requests to know which availability slots the user has signed up for
+    const parseShiftItem = (item) => {
+      const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
+      const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
+      if (isNaN(start) || isNaN(end)) return null;
+      const notes = item.notes || item.Notes || '';
+      const rawType = item.shiftType || item.theme || 'Shift';
+      const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
+      const isAllDay = rawType === 'Absence';
+      return { startMs: start.getTime(), endMs: end.getTime(), summary, notes, isAllDay };
+    };
+
+    const events = [];
+    const rawOpenShifts = []; // collected during pagination; marked isAvailabilitySignup after sign-up fetch
+    let nextUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
+    let pageCount = 0;
+
+    while (nextUrl && pageCount < 20) {
+      const resp = await fetch(nextUrl, { headers });
+      const text = await resp.text();
+      if (!resp.ok || text.trimStart().startsWith('<')) {
+        capturedShiftsHeaders = null;
+        if (attempt === 0) { nextUrl = null; break; }
+        throw new Error(`Shifts API ${resp.status}: ${text.slice(0, 200)}`);
+      }
+      const data = JSON.parse(text);
+
+      for (const shift of (data.shifts || data.Shifts || [])) {
+        const parsed = parseShiftItem(shift);
+        if (parsed) events.push({ ...parsed, isOpenShift: false });
+      }
+      for (const shift of (data.openShifts || data.OpenShifts || [])) {
+        const parsed = parseShiftItem(shift);
+        if (parsed) rawOpenShifts.push({ parsed, id: shift.id });
+        // Extract tenantId from open shift objects — most reliable source
+        if (!capturedTenantId && shift.tenantId) capturedTenantId = shift.tenantId;
+      }
+      for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
+        const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
+        if (!startStr) continue;
+        const start = new Date(startStr);
+        const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
+        const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
+        const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
+        events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
+      }
+
+      nextUrl = data.nextLink || data['@odata.nextLink'] || null;
+      pageCount++;
+    }
+
+    // Fetch sign-up requests now that tenantId is available from open shift objects
     const signedUpOpenShiftIds = new Set();
     const tenantId = capturedTenantId || getTenantIdFromHeaders(capturedShiftsHeaders);
     if (tenantId) {
@@ -275,52 +325,11 @@ async function fetchShifts() {
         }
       }
     }
+    console.info('[ShiftsExport] tenantId:', tenantId, '| signedUpOpenShiftIds:', [...signedUpOpenShiftIds]);
 
-    const parseShiftItem = (item) => {
-      const start = new Date(item.startTime || item.startDateTime || item.StartDateTime || item.start);
-      const end = new Date(item.endTime || item.endDateTime || item.EndDateTime || item.end);
-      if (isNaN(start) || isNaN(end)) return null;
-      const notes = item.notes || item.Notes || '';
-      const rawType = item.shiftType || item.theme || 'Shift';
-      const summary = item.title || item.displayName || (rawType === 'Absence' ? 'Time Off' : rawType);
-      const isAllDay = rawType === 'Absence';
-      return { startMs: start.getTime(), endMs: end.getTime(), summary, notes, isAllDay };
-    };
-
-    const events = [];
-    let nextUrl = `${capturedApiBase}/users/me/dataindaterange?${params}`;
-    let pageCount = 0;
-
-    while (nextUrl && pageCount < 20) {
-      const resp = await fetch(nextUrl, { headers });
-      const text = await resp.text();
-      if (!resp.ok || text.trimStart().startsWith('<')) {
-        capturedShiftsHeaders = null;
-        if (attempt === 0) { nextUrl = null; break; }
-        throw new Error(`Shifts API ${resp.status}: ${text.slice(0, 200)}`);
-      }
-      const data = JSON.parse(text);
-
-      for (const shift of (data.shifts || data.Shifts || [])) {
-        const parsed = parseShiftItem(shift);
-        if (parsed) events.push({ ...parsed, isOpenShift: false });
-      }
-      for (const shift of (data.openShifts || data.OpenShifts || [])) {
-        const parsed = parseShiftItem(shift);
-        if (parsed) events.push({ ...parsed, isOpenShift: true, isAvailabilitySignup: signedUpOpenShiftIds.has(shift.id) });
-      }
-      for (const tdo of (data.timesOff || data.TimesOff || data.timeOffRequests || [])) {
-        const startStr = tdo.startTime || tdo.startDateTime || tdo.StartDateTime;
-        if (!startStr) continue;
-        const start = new Date(startStr);
-        const endStr = tdo.endTime || tdo.endDateTime || tdo.EndDateTime;
-        const end = endStr ? new Date(endStr) : new Date(start.getTime() + 86400000);
-        const summary = tdo.title || tdo.reason?.displayName || tdo.displayName || 'Time Off';
-        events.push({ summary, notes: tdo.notes || '', startMs: start.getTime(), endMs: end.getTime(), isOpenShift: false, isAllDay: true });
-      }
-
-      nextUrl = data.nextLink || data['@odata.nextLink'] || null;
-      pageCount++;
+    // Add open shifts to events now that signedUpOpenShiftIds is populated
+    for (const { parsed, id } of rawOpenShifts) {
+      events.push({ ...parsed, isOpenShift: true, isAvailabilitySignup: signedUpOpenShiftIds.has(id) });
     }
 
     if (attempt === 0 && events.length === 0) { capturedShiftsHeaders = null; continue; }
