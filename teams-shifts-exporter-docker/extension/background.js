@@ -192,6 +192,17 @@ async function fetchShifts() {
         if (capturedShiftsHeaders) break;
         await sleep(500);
       }
+      // Teams was already loaded and didn't emit new requests — force reload to get fresh headers
+      if (!capturedShiftsHeaders) {
+        setProgress('Reloading Teams to refresh auth...', 4);
+        const tabs = await chrome.tabs.query({ url: 'https://teams.cloud.microsoft/*' });
+        for (const tab of tabs) chrome.tabs.reload(tab.id);
+        const reloadDeadline = Date.now() + 20000;
+        while (Date.now() < reloadDeadline) {
+          if (capturedShiftsHeaders) break;
+          await sleep(500);
+        }
+      }
     }
 
     if (!capturedShiftsHeaders || !capturedApiBase) {
@@ -262,6 +273,7 @@ async function fetchShifts() {
         throw new Error(`Shifts API ${resp.status}: ${text.slice(0, 200)}`);
       }
       const data = JSON.parse(text);
+      console.info('[ShiftsExport] dataindaterange page', pageCount, 'keys:', Object.keys(data));
 
       if (pageCount === 0) {
         const openShiftSample = (data.openShifts || data.OpenShifts || []).slice(0, 3);
