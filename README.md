@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.59
+- Availability sign-up slots now sync to a separate **"Open Time Signup"** iCloud calendar instead of "Work Shifts"
+
 ### v1.58
 - Added "Include signed-up availability slots" toggle (default off) — controls whether slots you've signed up for appear on your calendar
 - Changed "Include open shifts" toggle to default off (was previously on by default)
