@@ -6,6 +6,7 @@ const ALARM_NAME = 'daily-shifts-export';
 
 let capturedShiftsHeaders = null;
 let capturedApiBase = null;
+let capturedTenantId = null;
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
@@ -17,6 +18,8 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         const url = new URL(details.url);
         const region = url.pathname.split('/').filter(Boolean)[0];
         if (region) capturedApiBase = `${url.origin}/${region}/api`;
+        const tenantMatch = url.pathname.match(/\/tenants\/([^/]+)/);
+        if (tenantMatch) capturedTenantId = tenantMatch[1];
       } catch (e) {
         console.error('[ShiftsExport] webRequest parse error:', e);
       }
@@ -229,7 +232,7 @@ async function fetchShifts() {
 
     // Fetch open shift sign-up requests to know which availability slots the user has signed up for
     const signedUpOpenShiftIds = new Set();
-    const tenantId = getTenantIdFromHeaders(capturedShiftsHeaders);
+    const tenantId = capturedTenantId || getTenantIdFromHeaders(capturedShiftsHeaders);
     if (tenantId) {
       for (const teamId of teamIds) {
         try {
