@@ -33,8 +33,11 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.65
+- Availability sign-up slots now appear as all-day events titled `Avl HHMM` (e.g. `Avl 1430`) matching the compact shift-code style
+
 ### v1.64
-- Fixed sign-up detection — now queries `openShiftChangeRequests` (GET) per team instead of the non-existent `shifts/open/requests` (POST), correctly identifying which bare time-code open shifts the user has signed up for
+- Fixed sign-up detection — now queries `shiftrequests` per team (the correct Teams endpoint) and matches `requestType: "Open"` entries by their `shiftId` field against open shift IDs, correctly detecting which availability slots the user has signed up for
 
 ### v1.63
 - Fixed sign-up detection — pagination now runs first so tenantId can be extracted directly from open shift objects, then sign-up requests are fetched with the correct ID
