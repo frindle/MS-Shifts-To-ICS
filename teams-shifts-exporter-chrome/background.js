@@ -296,24 +296,33 @@ async function fetchShifts() {
     const bareTimeSample = rawOpenShifts.filter(({ parsed }) => /^\d{4}\b/.test(parsed.summary || '')).slice(0, 3);
     console.info('[ShiftsExport] bare time-code open shift sample:', JSON.stringify(bareTimeSample.map(({ raw }) => raw)));
 
-    // Fetch sign-up requests — only for availability sign-up candidates (bare time-code titles)
+    // Fetch sign-up requests — group bare time-code candidates by their teamId, POST to each team
     const signedUpOpenShiftIds = new Set();
     const tenantId = capturedTenantId || getTenantIdFromHeaders(capturedShiftsHeaders);
-    const signupCandidateIds = rawOpenShifts
-      .filter(({ parsed }) => /^\d{4}\b/.test(parsed.summary || ''))
-      .map(({ id }) => id)
-      .filter(Boolean);
-    console.info('[ShiftsExport] tenantId:', tenantId, '| signupCandidateIds:', signupCandidateIds.length);
-    if (tenantId && signupCandidateIds.length > 0) {
-      const BATCH = 25;
-      for (const tid of teamIds) {
-        for (let i = 0; i < signupCandidateIds.length; i += BATCH) {
-          const batch = signupCandidateIds.slice(i, i + BATCH);
+    // Group by teamId (from raw object) so we only query the right team for each shift
+    const candidatesByTeam = new Map();
+    for (const { parsed, id, raw } of rawOpenShifts) {
+      if (!id || !/^\d{4}\b/.test(parsed.summary || '')) continue;
+      const tid = raw?.teamId || null;
+      if (!tid) continue;
+      if (!candidatesByTeam.has(tid)) candidatesByTeam.set(tid, []);
+      candidatesByTeam.get(tid).push(id);
+    }
+    console.info('[ShiftsExport] tenantId:', tenantId, '| candidatesByTeam:', [...candidatesByTeam.entries()].map(([t, ids]) => `${t}:${ids.length}`));
+    if (tenantId && candidatesByTeam.size > 0) {
+      const BATCH = 50;
+      for (const [tid, ids] of candidatesByTeam) {
+        for (let i = 0; i < ids.length; i += BATCH) {
+          const batch = ids.slice(i, i + BATCH);
           try {
-            const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests?${batch.map(id => `openShiftIds=${id}`).join('&')}`;
-            const reqResp = await fetch(reqUrl, { headers });
+            const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests`;
+            const reqResp = await fetch(reqUrl, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ openShiftIds: batch }),
+            });
             const reqText = await reqResp.text();
-            console.info('[ShiftsExport] sign-up requests team', tid, 'batch', i, 'status:', reqResp.status, 'body:', reqText.slice(0, 300));
+            console.info('[ShiftsExport] sign-up POST team', tid, 'batch', i, 'status:', reqResp.status, 'body:', reqText.slice(0, 400));
             if (reqResp.ok && !reqText.trimStart().startsWith('<')) {
               const reqData = JSON.parse(reqText);
               const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
