@@ -274,7 +274,7 @@ async function fetchShifts() {
       }
       for (const shift of (data.openShifts || data.OpenShifts || [])) {
         const parsed = parseShiftItem(shift);
-        if (parsed) rawOpenShifts.push({ parsed, id: shift.id });
+        if (parsed) rawOpenShifts.push({ parsed, id: shift.id, raw: shift });
         // Extract tenantId from open shift objects — most reliable source
         if (!capturedTenantId && shift.tenantId) capturedTenantId = shift.tenantId;
       }
@@ -291,6 +291,10 @@ async function fetchShifts() {
       nextUrl = data.nextLink || data['@odata.nextLink'] || null;
       pageCount++;
     }
+
+    // Log raw fields of first few bare time-code open shifts to find sign-up status field
+    const bareTimeSample = rawOpenShifts.filter(({ parsed }) => /^\d{4}\b/.test(parsed.summary || '')).slice(0, 3);
+    console.info('[ShiftsExport] bare time-code open shift sample:', JSON.stringify(bareTimeSample.map(({ raw }) => raw)));
 
     // Fetch sign-up requests — only for availability sign-up candidates (bare time-code titles)
     const signedUpOpenShiftIds = new Set();
