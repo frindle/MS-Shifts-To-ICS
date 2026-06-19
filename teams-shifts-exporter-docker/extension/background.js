@@ -292,32 +292,38 @@ async function fetchShifts() {
       pageCount++;
     }
 
-    // Fetch sign-up requests now that tenantId is available from open shift objects
+    // Fetch sign-up requests — only for availability sign-up candidates (bare time-code titles)
     const signedUpOpenShiftIds = new Set();
     const tenantId = capturedTenantId || getTenantIdFromHeaders(capturedShiftsHeaders);
-    const rawOpenShiftIds = rawOpenShifts.map(({ id }) => id).filter(Boolean);
-    console.info('[ShiftsExport] tenantId:', tenantId, '| rawOpenShiftIds:', rawOpenShiftIds);
-    if (tenantId && rawOpenShiftIds.length > 0) {
-      const idsParam = rawOpenShiftIds.join(',');
+    const signupCandidateIds = rawOpenShifts
+      .filter(({ parsed }) => /^\d{4}\b/.test(parsed.summary || ''))
+      .map(({ id }) => id)
+      .filter(Boolean);
+    console.info('[ShiftsExport] tenantId:', tenantId, '| signupCandidateIds:', signupCandidateIds.length);
+    if (tenantId && signupCandidateIds.length > 0) {
+      const BATCH = 25;
       for (const tid of teamIds) {
-        try {
-          const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests?openShiftIds=${encodeURIComponent(idsParam)}`;
-          const reqResp = await fetch(reqUrl, { headers });
-          const reqText = await reqResp.text();
-          console.info('[ShiftsExport] sign-up requests', reqUrl, 'status:', reqResp.status, 'body:', reqText.slice(0, 500));
-          if (reqResp.ok && !reqText.trimStart().startsWith('<')) {
-            const reqData = JSON.parse(reqText);
-            const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
-            for (const req of requests) {
-              const state = req.state || req.requestState;
-              const shiftId = req.shiftId || req.openShiftId;
-              if (shiftId && (state === 'WaitingOnManager' || state === 'ManagerApproved' || state === 'pending' || state === 'approved')) {
-                signedUpOpenShiftIds.add(shiftId);
+        for (let i = 0; i < signupCandidateIds.length; i += BATCH) {
+          const batch = signupCandidateIds.slice(i, i + BATCH);
+          try {
+            const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests?openShiftIds=${encodeURIComponent(batch.join(','))}`;
+            const reqResp = await fetch(reqUrl, { headers });
+            const reqText = await reqResp.text();
+            console.info('[ShiftsExport] sign-up requests team', tid, 'batch', i, 'status:', reqResp.status, 'body:', reqText.slice(0, 300));
+            if (reqResp.ok && !reqText.trimStart().startsWith('<')) {
+              const reqData = JSON.parse(reqText);
+              const requests = reqData.requests || reqData.openShiftChangeRequests || reqData.value || (Array.isArray(reqData) ? reqData : []);
+              for (const req of requests) {
+                const state = req.state || req.requestState;
+                const shiftId = req.shiftId || req.openShiftId;
+                if (shiftId && (state === 'WaitingOnManager' || state === 'ManagerApproved' || state === 'pending' || state === 'approved')) {
+                  signedUpOpenShiftIds.add(shiftId);
+                }
               }
             }
+          } catch (e) {
+            console.warn('[ShiftsExport] Could not fetch sign-up requests:', e.message);
           }
-        } catch (e) {
-          console.warn('[ShiftsExport] Could not fetch sign-up requests:', e.message);
         }
       }
     }
