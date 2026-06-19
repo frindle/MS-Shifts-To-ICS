@@ -33,6 +33,9 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.64
+- Fixed sign-up detection — now queries `openShiftChangeRequests` (GET) per team instead of the non-existent `shifts/open/requests` (POST), correctly identifying which bare time-code open shifts the user has signed up for
+
 ### v1.63
 - Fixed sign-up detection — pagination now runs first so tenantId can be extracted directly from open shift objects, then sign-up requests are fetched with the correct ID
 
