@@ -306,7 +306,7 @@ async function fetchShifts() {
         for (let i = 0; i < signupCandidateIds.length; i += BATCH) {
           const batch = signupCandidateIds.slice(i, i + BATCH);
           try {
-            const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests?openShiftIds=${encodeURIComponent(batch.join(','))}`;
+            const reqUrl = `${capturedApiBase}/tenants/${tenantId}/teams/${tid}/shifts/open/requests?${batch.map(id => `openShiftIds=${id}`).join('&')}`;
             const reqResp = await fetch(reqUrl, { headers });
             const reqText = await reqResp.text();
             console.info('[ShiftsExport] sign-up requests team', tid, 'batch', i, 'status:', reqResp.status, 'body:', reqText.slice(0, 300));
