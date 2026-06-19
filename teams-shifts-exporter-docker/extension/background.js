@@ -212,6 +212,13 @@ async function fetchShifts() {
     const teamsData = JSON.parse(teamsText);
     const teamList = teamsData.teams || teamsData.value || (Array.isArray(teamsData) ? teamsData : []);
     const teamIds = teamList.map((t) => t.team?.id || t.id || t.teamId).filter(Boolean);
+    // Extract tenantId from team objects if not already captured from a URL
+    if (!capturedTenantId) {
+      for (const t of teamList) {
+        const tid = t.tenantId || t.team?.tenantId || t.tid;
+        if (tid) { capturedTenantId = tid; break; }
+      }
+    }
     if (!teamIds.length) {
       console.warn('[ShiftsExport] No teams found. Keys:', Object.keys(teamsData||{}), 'Sample:', JSON.stringify(teamsData).slice(0,400));
       throw new Error('No teams found in Shifts. Make sure you have a schedule set up in Teams Shifts.');
@@ -570,7 +577,9 @@ function getTenantIdFromHeaders(headers) {
   try {
     const parts = authHeader.value.replace('Bearer ', '').split('.');
     if (parts.length < 2) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/') + '=='));
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
+    const payload = JSON.parse(atob(padded));
     return payload.tid || null;
   } catch { return null; }
 }
