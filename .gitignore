@@ -1,3 +1,4 @@
 .memsearch/
 .env
 *.xpi
+.DS_Store
