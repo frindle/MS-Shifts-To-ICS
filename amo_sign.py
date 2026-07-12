@@ -22,8 +22,8 @@ if not JWT_ISSUER or not JWT_SECRET:
     print('ERROR: AMO_JWT_ISSUER and AMO_JWT_SECRET must be set in .env or environment')
     sys.exit(1)
 ADDON_ID = '2993651'
-XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.65.xpi'
-OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.65-signed.xpi'
+XPI_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.66.xpi'
+OUT_PATH = '/Users/penndalton/Desktop/GitHub Projects/teams-shifts-exporter-firefox-1.66-signed.xpi'
 BASE = 'https://addons.mozilla.org/api/v5'
 
 
@@ -103,7 +103,7 @@ def download(url, dest):
         f.write(r.read())
 
 
-TARGET_VERSION = '1.65'
+TARGET_VERSION = '1.66'
 print(f'=== AMO: Upload, sign, and download v{TARGET_VERSION} ===')
 
 # 1. Upload XPI
