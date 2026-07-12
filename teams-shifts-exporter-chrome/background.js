@@ -522,16 +522,11 @@ function generateICS(events) {
   const pad = (n) => String(n).padStart(2, '0');
 
   function toICSDate(ms) {
-    const d = new Date(ms);
-    return (
-      d.getFullYear() +
-      pad(d.getMonth() + 1) +
-      pad(d.getDate()) +
-      'T' +
-      pad(d.getHours()) +
-      pad(d.getMinutes()) +
-      '00'
-    );
+    // UTC with Z suffix: local floating times exported while the device was
+    // in a different timezone (travel, or the Docker container's TZ) shifted
+    // every shift by the offset. Calendars render Z-times in the viewer's
+    // zone, which is always correct.
+    return new Date(ms).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   }
 
   const lines = [
@@ -626,24 +621,16 @@ function isEligibleOpenShift(openShift, scheduledShifts) {
 
 // Date-only ICS formatter for all-day events (no time component)
 function toICSDateOnlyStr(ms) {
-  const pad = (n) => String(n).padStart(2, '0');
-  const d = new Date(ms);
-  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
+  // ponytail: UTC calendar date. Correct for US home timezones (home-midnight
+  // lands on the same UTC date); revisit with an explicit home-TZ setting if
+  // shifts ever live east of UTC.
+  return new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
 }
 
 // Shared ICS date formatter used by both generateICS and the CalDAV client
 function toICSDateStr(ms) {
-  const pad = (n) => String(n).padStart(2, '0');
-  const d = new Date(ms);
-  return (
-    d.getFullYear() +
-    pad(d.getMonth() + 1) +
-    pad(d.getDate()) +
-    'T' +
-    pad(d.getHours()) +
-    pad(d.getMinutes()) +
-    '00'
-  );
+  // UTC (see toICSDate): absolute instants, immune to device/container TZ.
+  return new Date(ms).toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
 }
 
 // Build a single-event VCALENDAR block for CalDAV PUT

@@ -1,6 +1,8 @@
 services:
   teams-shifts:
-    build: .
+    build:
+      context: ..
+      dockerfile: teams-shifts-exporter-docker/Dockerfile
     container_name: teams-shifts-sync
     restart: unless-stopped
     environment:

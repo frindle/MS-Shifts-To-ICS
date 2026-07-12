@@ -12,12 +12,14 @@ RUN apt-get update && apt-get install -y \
   && apt-get update && apt-get install -y google-chrome-stable \
   && rm -rf /var/lib/apt/lists/*
 
-COPY extension/ /app/extension/
+# Extension source lives in the Chrome dir — single source of truth.
+# Build context is the repo root (see docker-compose.yml).
+COPY teams-shifts-exporter-chrome/ /app/extension/
 
-COPY runner/package.json runner/package-lock.json* /app/runner/
+COPY teams-shifts-exporter-docker/runner/package.json teams-shifts-exporter-docker/runner/package-lock.json* /app/runner/
 RUN cd /app/runner && npm ci --omit=dev
 
-COPY runner/ /app/runner/
+COPY teams-shifts-exporter-docker/runner/ /app/runner/
 RUN chmod +x /app/runner/entrypoint.sh
 
 CMD ["/app/runner/entrypoint.sh"]

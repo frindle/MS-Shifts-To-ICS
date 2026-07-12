@@ -33,6 +33,15 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 ## Changelog
 
+### v1.66
+- **Fixed shift times exported in the wrong timezone** — ICS events are now
+  written as UTC instants (`Z` times) instead of floating local time, so
+  exports are correct regardless of the device's or Docker container's
+  timezone (e.g. while traveling). All-day events use the UTC calendar date.
+- Docker image now builds from the Chrome extension directory directly —
+  removed the stale duplicated `extension/` copy (it was missing the v1.6x
+  sign-up-slot and Outlook calendar fixes).
+
 ### v1.65
 - Availability sign-up slots now appear as all-day events titled `Avl HHMM` (e.g. `Avl 1430`) matching the compact shift-code style
 
