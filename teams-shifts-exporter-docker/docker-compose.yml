@@ -4,6 +4,8 @@ services:
       context: ..
       dockerfile: teams-shifts-exporter-docker/Dockerfile
     container_name: teams-shifts-sync
+    labels:
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/frindle/MS-Shifts-To-ICS/main/icon.png"
     restart: unless-stopped
     environment:
       - PUSHOVER_TOKEN=${PUSHOVER_TOKEN}
