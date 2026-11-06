@@ -13,6 +13,11 @@ const DEFAULT_SETTINGS = {
   icloudEmail:       '',
   icloudAppPassword: '',
   includeOpenShifts: true,
+  importToNextcloud:     false,
+  nextcloudUrl:          '',
+  nextcloudUser:         '',
+  nextcloudAppPassword:  '',
+  nextcloudCalendarName: '',
 };
 
 // ─── Settings helpers ─────────────────────────────────────────────────────────
@@ -170,6 +175,32 @@ function renderDashboard() {
         <div class="field-hint">Generate at <strong>appleid.apple.com</strong> &rarr; Sign-In &amp; Security &rarr; App-Specific Passwords</div>
       </div>
     </div>
+    <div class="sync-row" id="nextcloudRow">
+      <label for="importToNextcloud" style="flex:1;cursor:pointer">Nextcloud / CalDAV</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="chevron" id="nextcloudChevron">&#9660;</span>
+        <input type="checkbox" id="importToNextcloud" />
+      </div>
+    </div>
+    <div class="creds-section" id="nextcloudCreds">
+      <div class="field">
+        <label>Server URL</label>
+        <input type="text" id="nextcloudUrl" placeholder="https://cloud.example.com" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Username</label>
+        <input type="text" id="nextcloudUser" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>App Password</label>
+        <input type="password" id="nextcloudAppPassword" autocomplete="off" />
+        <div class="field-hint">Nextcloud &rarr; Personal settings &rarr; Security &rarr; Devices &amp; sessions</div>
+      </div>
+      <div class="field">
+        <label>Calendar name</label>
+        <input type="text" id="nextcloudCalendarName" placeholder="Work Shifts" autocomplete="off" />
+      </div>
+    </div>
   </div>
 
   <label class="toggle-row">
@@ -192,7 +223,32 @@ async function loadSettings() {
   document.getElementById('icloudEmail').value        = s.icloudEmail || '';
   // Never pre-fill the password field — leave blank; only written if user types something
   toggleIcloudCreds(!!s.importToiCloud, /* expand */ !s.icloudEmail);
+  document.getElementById('importToNextcloud').checked     = !!s.importToNextcloud;
+  document.getElementById('nextcloudUrl').value            = s.nextcloudUrl || '';
+  document.getElementById('nextcloudUser').value           = s.nextcloudUser || '';
+  document.getElementById('nextcloudCalendarName').value   = s.nextcloudCalendarName || '';
+  toggleNextcloudCreds(!!s.importToNextcloud, /* expand */ !s.nextcloudUrl);
 }
+
+function toggleNextcloudCreds(on, expand) {
+  const chevron = document.getElementById('nextcloudChevron');
+  const creds   = document.getElementById('nextcloudCreds');
+  chevron.style.display = on ? 'inline' : 'none';
+  if (!on) { creds.style.display = 'none'; chevron.classList.remove('open'); return; }
+  if (expand) { creds.style.display = 'block'; chevron.classList.add('open'); }
+}
+
+document.getElementById('importToNextcloud').addEventListener('change', function() {
+  toggleNextcloudCreds(this.checked, true);
+});
+
+document.getElementById('nextcloudChevron').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const creds = document.getElementById('nextcloudCreds');
+  const open  = creds.style.display !== 'none';
+  creds.style.display = open ? 'none' : 'block';
+  document.getElementById('nextcloudChevron').classList.toggle('open', !open);
+});
 
 function toggleIcloudCreds(on, expand) {
   const chevron = document.getElementById('icloudChevron');
@@ -228,6 +284,12 @@ async function saveSettings() {
   };
   const pw = document.getElementById('icloudAppPassword').value.trim();
   if (pw) body.icloudAppPassword = pw;
+  body.importToNextcloud     = document.getElementById('importToNextcloud').checked;
+  body.nextcloudUrl          = document.getElementById('nextcloudUrl').value.trim();
+  body.nextcloudUser         = document.getElementById('nextcloudUser').value.trim();
+  body.nextcloudCalendarName = document.getElementById('nextcloudCalendarName').value.trim();
+  const ncpw = document.getElementById('nextcloudAppPassword').value.trim();
+  if (ncpw) body.nextcloudAppPassword = ncpw;
 
   const r = await fetch('/api/settings', {
     method: 'POST',
@@ -242,6 +304,7 @@ async function saveSettings() {
     saveStatus.textContent = 'Settings saved.';
     saveStatus.style.color = '#FBCE20';
     document.getElementById('icloudAppPassword').value = '';
+    document.getElementById('nextcloudAppPassword').value = '';
     setTimeout(() => { saveStatus.textContent = ''; }, 3000);
   } else {
     saveStatus.textContent = 'Save failed.';
@@ -308,7 +371,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/settings' && req.method === 'GET') {
     const s = readSettings();
     // Never send the password back to the browser
-    const safe = { ...s, icloudAppPassword: s.icloudAppPassword ? '••••••••' : '' };
+    const safe = { ...s, icloudAppPassword: s.icloudAppPassword ? '••••••••' : '', nextcloudAppPassword: s.nextcloudAppPassword ? '••••••••' : '' };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(safe));
     return;
@@ -319,9 +382,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       // If password comes back as the placeholder, don't overwrite the stored one
       if (body.icloudAppPassword === '••••••••') delete body.icloudAppPassword;
+      if (body.nextcloudAppPassword === '••••••••') delete body.nextcloudAppPassword;
       const next = writeSettings(body);
       console.log('[server] Settings updated');
-      const safe = { ...next, icloudAppPassword: next.icloudAppPassword ? '••••••••' : '' };
+      const safe = { ...next, icloudAppPassword: next.icloudAppPassword ? '••••••••' : '', nextcloudAppPassword: next.nextcloudAppPassword ? '••••••••' : '' };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(safe));
     } catch (err) {

@@ -5,14 +5,45 @@ const fs        = require('fs');
 
 const CHROME_PATH    = process.env.CHROME_PATH || '/usr/bin/google-chrome-stable';
 const EXTENSION_PATH = '/app/extension';
+const PATCHED_EXTENSION_PATH = '/data/extension-run';
 const PROFILE_PATH   = '/data/chrome-profile';
 const SETTINGS_PATH  = '/data/settings.json';
 const PUSHOVER_URL   = 'https://api.pushover.net/1/messages.json';
 
 function loadSettings() {
-  const defaults = { importToOutlook: false, importToiCloud: false, icloudEmail: '', icloudAppPassword: '', includeOpenShifts: true };
-  try { return { ...defaults, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) }; }
-  catch { return defaults; }
+  const defaults = {
+    importToOutlook: false, importToiCloud: false, icloudEmail: '', icloudAppPassword: '', includeOpenShifts: true,
+    importToNextcloud: false, nextcloudUrl: '', nextcloudUser: '', nextcloudAppPassword: '', nextcloudCalendarName: '',
+  };
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')); } catch {}
+  const s = { ...defaults, ...saved };
+  // Env vars fill in anything not set via the dashboard (settings.json wins).
+  s.nextcloudUrl          = s.nextcloudUrl          || process.env.NEXTCLOUD_URL || '';
+  s.nextcloudUser         = s.nextcloudUser         || process.env.NEXTCLOUD_USER || '';
+  s.nextcloudAppPassword  = s.nextcloudAppPassword  || process.env.NEXTCLOUD_APP_PASSWORD || '';
+  s.nextcloudCalendarName = s.nextcloudCalendarName || process.env.NEXTCLOUD_CALENDAR_NAME || '';
+  if (saved.importToNextcloud === undefined && s.nextcloudUrl && s.nextcloudUser && s.nextcloudAppPassword) {
+    s.importToNextcloud = true;
+  }
+  return s;
+}
+
+// The Nextcloud server URL is user-entered, so the extension declares it as an
+// optional host permission that a headless run cannot prompt for. Instead, load a
+// copy of the extension whose manifest has the server origin added to host_permissions.
+function prepareExtension(settings) {
+  if (!settings.importToNextcloud || !settings.nextcloudUrl) return EXTENSION_PATH;
+  let serverOrigin;
+  try { serverOrigin = new URL(settings.nextcloudUrl).origin; }
+  catch { console.error('[sync] Invalid Nextcloud URL — loading extension unpatched'); return EXTENSION_PATH; }
+  fs.rmSync(PATCHED_EXTENSION_PATH, { recursive: true, force: true });
+  fs.cpSync(EXTENSION_PATH, PATCHED_EXTENSION_PATH, { recursive: true });
+  const manifestPath = `${PATCHED_EXTENSION_PATH}/manifest.json`;
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  manifest.host_permissions = [...(manifest.host_permissions || []), `${serverOrigin}/*`];
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return PATCHED_EXTENSION_PATH;
 }
 
 // How long to wait for Teams to fire a webRequest and let the SW capture auth headers.
@@ -72,11 +103,13 @@ async function runSync() {
   let browser;
 
   try {
+    const settings = loadSettings();
+    const extensionPath = prepareExtension(settings);
     browser = await puppeteer.launch({
       headless: false,
       executablePath: CHROME_PATH,
       args: [
-        `--load-extension=${EXTENSION_PATH}`,
+        `--load-extension=${extensionPath}`,
         `--user-data-dir=${PROFILE_PATH}`,
         '--no-sandbox',
         '--disable-dev-shm-usage',
@@ -118,7 +151,6 @@ async function runSync() {
 
     // Push settings from /data/settings.json into chrome.storage.local so the
     // extension picks them up (iCloud creds, toggles, etc.) before running.
-    const settings = loadSettings();
     await swEval(
       session,
       `(async () => {
@@ -131,6 +163,11 @@ async function runSync() {
           includeOpenShifts: ${JSON.stringify(settings.includeOpenShifts)},
           icloudEmail:       ${JSON.stringify(settings.icloudEmail)},
           icloudAppPassword: ${JSON.stringify(settings.icloudAppPassword)},
+          importToNextcloud:     ${JSON.stringify(settings.importToNextcloud)},
+          nextcloudUrl:          ${JSON.stringify(settings.nextcloudUrl)},
+          nextcloudUser:         ${JSON.stringify(settings.nextcloudUser)},
+          nextcloudAppPassword:  ${JSON.stringify(settings.nextcloudAppPassword)},
+          nextcloudCalendarName: ${JSON.stringify(settings.nextcloudCalendarName)},
         });
       })()`,
       true

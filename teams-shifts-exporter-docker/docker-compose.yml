@@ -10,6 +10,11 @@ services:
     environment:
       - PUSHOVER_TOKEN=${PUSHOVER_TOKEN}
       - PUSHOVER_USER=${PUSHOVER_USER}
+      # Optional Nextcloud / CalDAV target (can also be set from the dashboard)
+      - NEXTCLOUD_URL=${NEXTCLOUD_URL:-}
+      - NEXTCLOUD_USER=${NEXTCLOUD_USER:-}
+      - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+      - NEXTCLOUD_CALENDAR_NAME=${NEXTCLOUD_CALENDAR_NAME:-}
     volumes:
       - chrome-profile:/data/chrome-profile
     shm_size: "256mb"

@@ -346,7 +346,7 @@ async function fetchShifts() {
   }
 }
 
-async function runExport({ auto = false, skipICloud = false } = {}) {
+async function runExport({ auto = false, skipICloud = false, skipNextcloud = false } = {}) {
   const { syncRunning } = await chrome.storage.local.get('syncRunning');
   if (syncRunning) return { success: false, error: 'Sync already in progress' };
 
@@ -389,12 +389,19 @@ async function runExport({ auto = false, skipICloud = false } = {}) {
       icloudResult = await syncToiCloud(mergedEvents);
     }
 
+    // Sync to Nextcloud via CalDAV if enabled (same skip rule as iCloud)
+    const { importToNextcloud } = await chrome.storage.local.get('importToNextcloud');
+    let nextcloudResult = null;
+    if (importToNextcloud && !skipNextcloud) {
+      nextcloudResult = await syncToNextcloud(mergedEvents);
+    }
+
     // Update last export time and store ICS for clear & re-import
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents, lastExportSuccess: Date.now() });
 
     chrome.storage.local.set({ lastError: null });
     clearProgress();
-    return { success: true, count: mergedEvents.length, outlookResult, icloudResult };
+    return { success: true, count: mergedEvents.length, outlookResult, icloudResult, nextcloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     const errMsg = err?.message || (typeof err === 'string' ? err : '') || err?.name || 'Unknown error';
@@ -658,10 +665,26 @@ function buildSingleEventICS(event, uid) {
   return lines.join('\r\n');
 }
 
-class iCloudCalDAVClient {
-  constructor(email, appPassword) {
-    this.authHeader = 'Basic ' + btoa(`${email}:${appPassword}`);
+// Generic CalDAV client. Target-specific bits (label, discovery root, storage key
+// for open-shift tracking, fetch options) are passed in by the thin subclasses below.
+class CalDAVClient {
+  constructor({ label, authHeader, origin, rootUrl, openKey = 'syncedOpenShiftUids',
+                fetchOpts = {}, credHint = '', principalHint = '', fallbackPrincipalUrl = null }) {
+    this.label = label;
+    this.authHeader = authHeader;
+    this.origin = origin;
+    this.rootUrl = rootUrl;
+    this.openKey = openKey;
+    this.fetchOpts = fetchOpts;
+    this.credHint = credHint;
+    this.principalHint = principalHint;
+    this.fallbackPrincipalUrl = fallbackPrincipalUrl;
     this.calendarHomeUrl = null;
+  }
+
+  // Resolve a (possibly relative) href against this server's origin
+  _abs(href) {
+    return href.startsWith('http') ? href : `${this.origin}${href}`;
   }
 
   // fetch wrapper that manually follows redirects to preserve HTTP method
@@ -675,22 +698,24 @@ class iCloudCalDAVClient {
     const fetchWithTimeout = (fetchUrl) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      return fetch(fetchUrl, { method, headers, body, redirect: 'manual', signal: controller.signal })
+      return fetch(fetchUrl, { method, headers, body, redirect: 'manual', signal: controller.signal, ...this.fetchOpts })
         .finally(() => clearTimeout(timer));
     };
 
-    let response = await fetchWithTimeout(url);
+    let currentUrl = url;
+    let response = await fetchWithTimeout(currentUrl);
 
     let hops = 0;
     while (hops < 5) {
       const status = response.status;
       if (status === 0 || response.type === 'opaqueredirect') {
-        throw new Error(`iCloud request got opaque redirect — credential or URL issue`);
+        throw new Error(`${this.label} request got opaque redirect — credential or URL issue`);
       }
       if (status === 301 || status === 302 || status === 307 || status === 308) {
         const location = response.headers.get('Location');
         if (!location) break;
-        response = await fetchWithTimeout(location);
+        currentUrl = new URL(location, currentUrl).href;
+        response = await fetchWithTimeout(currentUrl);
         hops++;
       } else {
         break;
@@ -703,28 +728,28 @@ class iCloudCalDAVClient {
   // Discover the calendar-home-set URL for this account
   async connect() {
     const principalBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:current-user-principal/></D:prop></D:propfind>`;
-    let res = await this.request('https://caldav.icloud.com/', 'PROPFIND', principalBody, { 'Depth': '0' });
-    if (!res.ok) throw new Error(`iCloud principal discovery failed (HTTP ${res.status}). Check your Apple ID and app-specific password.`);
+    let res = await this.request(this.rootUrl, 'PROPFIND', principalBody, { 'Depth': '0' });
+    let principalPath = null;
+    if (res.ok) {
+      const principalXml = await res.text();
+      principalPath = this._hrefInsideTag(principalXml, 'current-user-principal');
+    } else if (!this.fallbackPrincipalUrl || res.status === 401 || res.status === 403) {
+      throw new Error(`${this.label} principal discovery failed (HTTP ${res.status}). ${this.credHint}`);
+    }
+    if (!principalPath && this.fallbackPrincipalUrl) principalPath = this.fallbackPrincipalUrl;
+    if (!principalPath) throw new Error(`${this.label} did not return a principal URL. ${this.principalHint}`);
 
-    const principalXml = await res.text();
-    const principalPath = this._hrefInsideTag(principalXml, 'current-user-principal');
-    if (!principalPath) throw new Error('iCloud did not return a principal URL. Ensure you are using an app-specific password.');
-
-    const principalUrl = principalPath.startsWith('http')
-      ? principalPath
-      : `https://caldav.icloud.com${principalPath}`;
+    const principalUrl = this._abs(principalPath);
 
     const homeBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><C:calendar-home-set/></D:prop></D:propfind>`;
     res = await this.request(principalUrl, 'PROPFIND', homeBody, { 'Depth': '0' });
-    if (!res.ok) throw new Error(`iCloud calendar-home-set discovery failed (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(`${this.label} calendar-home-set discovery failed (HTTP ${res.status})`);
 
     const homeXml = await res.text();
     const homePath = this._hrefInsideTag(homeXml, 'calendar-home-set');
-    if (!homePath) throw new Error('iCloud did not return a calendar-home-set URL');
+    if (!homePath) throw new Error(`${this.label} did not return a calendar-home-set URL`);
 
-    this.calendarHomeUrl = homePath.startsWith('http')
-      ? homePath
-      : `https://caldav.icloud.com${homePath}`;
+    this.calendarHomeUrl = this._abs(homePath);
     if (!this.calendarHomeUrl.endsWith('/')) this.calendarHomeUrl += '/';
   }
 
@@ -734,26 +759,26 @@ class iCloudCalDAVClient {
   async findOrCreateCalendar(displayName) {
     const listBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>`;
     const res = await this.request(this.calendarHomeUrl, 'PROPFIND', listBody, { 'Depth': '1' });
-    if (!res.ok) throw new Error(`iCloud calendar listing failed (HTTP ${res.status})`);
+    if (!res.ok) throw new Error(`${this.label} calendar listing failed (HTTP ${res.status})`);
 
     const xml = await res.text();
-    console.info('[iCloud] Calendar list XML:', xml);
+    console.info(`[${this.label}] Calendar list XML:`, xml);
 
     for (const block of this._responseBlocks(xml)) {
       const name = this._tagText(block, 'displayname');
       if (name && name.trim() === displayName) {
         const href = this._tagText(block, 'href');
-        if (href) return href.startsWith('http') ? href : `https://caldav.icloud.com${href}`;
+        if (href) return this._abs(href);
       }
     }
 
     // Calendar not found — create it
     const uid = crypto.randomUUID();
     const newCalUrl = `${this.calendarHomeUrl}${uid}/`;
-    const mkBody = `<?xml version="1.0" encoding="utf-8"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop><D:displayname>${displayName}</D:displayname></D:prop></D:set></C:mkcalendar>`;
+    const mkBody = `<?xml version="1.0" encoding="utf-8"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop><D:displayname>${xmlEscape(displayName)}</D:displayname></D:prop></D:set></C:mkcalendar>`;
     const mkRes = await this.request(newCalUrl, 'MKCALENDAR', mkBody);
-    if (mkRes.status !== 201) throw new Error(`iCloud MKCALENDAR failed (HTTP ${mkRes.status})`);
-    console.info('[iCloud] Created calendar:', displayName, newCalUrl);
+    if (mkRes.status !== 201) throw new Error(`${this.label} MKCALENDAR failed (HTTP ${mkRes.status})`);
+    console.info(`[${this.label}] Created calendar:`, displayName, newCalUrl);
     return newCalUrl;
   }
 
@@ -761,7 +786,7 @@ class iCloudCalDAVClient {
   async getOurEvents(calendarUrl) {
     const reportBody = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/></D:prop><C:filter><C:comp-filter name="VCALENDAR"/></C:filter></C:calendar-query>`;
     const res = await this.request(calendarUrl, 'REPORT', reportBody, { 'Depth': '1' });
-    if (res.status !== 207 && !res.ok) throw new Error(`iCloud REPORT failed (HTTP ${res.status})`);
+    if (res.status !== 207 && !res.ok) throw new Error(`${this.label} REPORT failed (HTTP ${res.status})`);
 
     const xml = await res.text();
     const result = new Map(); // uid -> { url, etag }
@@ -772,7 +797,7 @@ class iCloudCalDAVClient {
       if (filename.startsWith('teams-shift-')) {
         const rawEtag = this._tagText(block, 'getetag') || '';
         result.set(filename, {
-          url: href.startsWith('http') ? href : `https://caldav.icloud.com${href}`,
+          url: this._abs(href),
           etag: rawEtag.replace(/^"|"$/g, ''), // strip surrounding quotes
         });
       }
@@ -798,12 +823,12 @@ class iCloudCalDAVClient {
           res = await this.request(url, 'PUT', icsContent, headers);
         }
         if (res.status < 200 || res.status >= 300) {
-          throw new Error(`iCloud PUT failed (HTTP ${res.status}) for ${uid}`);
+          throw new Error(`${this.label} PUT failed (HTTP ${res.status}) for ${uid}`);
         }
         return; // success
       } catch (err) {
         lastErr = err;
-        console.warn(`[iCloud] putEvent attempt ${attempt + 1} failed for ${uid}:`, err.message);
+        console.warn(`[${this.label}] putEvent attempt ${attempt + 1} failed for ${uid}:`, err.message);
       }
     }
     throw lastErr;
@@ -812,7 +837,7 @@ class iCloudCalDAVClient {
   async deleteEvent(eventUrl) {
     const res = await this.request(eventUrl, 'DELETE');
     if (res.status !== 204 && res.status !== 200) {
-      console.warn('[iCloud] DELETE returned', res.status, 'for', eventUrl);
+      console.warn(`[${this.label}] DELETE returned`, res.status, 'for', eventUrl);
     }
   }
 
@@ -821,7 +846,7 @@ class iCloudCalDAVClient {
     const existingOurEvents = await this.getOurEvents(calendarUrl);
     for (const [uid, { url }] of existingOurEvents) {
       await this.deleteEvent(url);
-      console.info('[iCloud] Cleared event:', uid);
+      console.info(`[${this.label}] Cleared event:`, uid);
     }
   }
 
@@ -836,7 +861,7 @@ class iCloudCalDAVClient {
     let uploaded = 0;
 
     // Load the set of open shift UIDs we've already pushed to iCloud
-    const { syncedOpenShiftUids: storedUids = [] } = await chrome.storage.local.get('syncedOpenShiftUids');
+    const storedUids = (await chrome.storage.local.get(this.openKey))[this.openKey] || [];
     const syncedOpenShiftUids = new Set(storedUids);
 
     // Pre-calculate how many events will actually be uploaded so the fraction
@@ -870,7 +895,7 @@ class iCloudCalDAVClient {
     }
 
     // Delete stale future events that are no longer in Teams
-    if (onProgress) onProgress('Checking iCloud calendar…', 0.97);
+    if (onProgress) onProgress(`Checking ${this.label} calendar…`, 0.97);
     await checkCancelled();
     const existingOurEvents = await this.getOurEvents(calendarUrl);
     const stale = [...existingOurEvents.entries()].filter(([uid]) => {
@@ -884,11 +909,11 @@ class iCloudCalDAVClient {
       if (onProgress) onProgress(`Removing old shift ${i + 1} of ${stale.length}…`, 0.97 + (i / stale.length) * 0.02);
       await this.deleteEvent(url);
       syncedOpenShiftUids.delete(uid);
-      console.info('[iCloud] Deleted stale event:', uid);
+      console.info(`[${this.label}] Deleted stale event:`, uid);
     }
 
     // Persist updated open shift tracking set
-    await chrome.storage.local.set({ syncedOpenShiftUids: [...syncedOpenShiftUids] });
+    await chrome.storage.local.set({ [this.openKey]: [...syncedOpenShiftUids] });
   }
 
   // ── Regex-based XML helpers (DOMParser unavailable in MV3 service workers) ──
@@ -918,6 +943,70 @@ class iCloudCalDAVClient {
     if (!m) return null;
     return this._tagText(m[1], 'href');
   }
+}
+
+function xmlEscape(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// iCloud: thin wrapper over the generic client (fixed host, default open-shift key)
+class iCloudCalDAVClient extends CalDAVClient {
+  constructor(email, appPassword) {
+    super({
+      label: 'iCloud',
+      authHeader: 'Basic ' + btoa(`${email}:${appPassword}`),
+      origin: 'https://caldav.icloud.com',
+      rootUrl: 'https://caldav.icloud.com/',
+      credHint: 'Check your Apple ID and app-specific password.',
+      principalHint: 'Ensure you are using an app-specific password.',
+    });
+  }
+}
+
+// Nextcloud: user-entered server URL, own storage key for open-shift tracking.
+// credentials:'omit' keeps browser cookies for the origin out of the request,
+// otherwise Nextcloud's strict cookie check answers 412.
+class NextcloudCalDAVClient extends CalDAVClient {
+  constructor(serverUrl, user, appPassword) {
+    const base = normalizeNextcloudUrl(serverUrl);
+    super({
+      label: 'Nextcloud',
+      authHeader: 'Basic ' + btoa(unescape(encodeURIComponent(`${user}:${appPassword}`))),
+      origin: new URL(base).origin,
+      rootUrl: `${base}/remote.php/dav/`,
+      openKey: 'nextcloudSyncedOpenShiftUids',
+      fetchOpts: { credentials: 'omit' },
+      credHint: 'Check the server URL, username and app password.',
+      principalHint: 'Check the server URL and that you are using an app password.',
+      fallbackPrincipalUrl: `${base}/remote.php/dav/principals/users/${encodeURIComponent(user)}/`,
+    });
+  }
+}
+
+// Strip trailing slashes and any pasted /remote.php/dav path from the server URL
+function normalizeNextcloudUrl(url) {
+  let u = String(url || '').trim().replace(/\/+$/, '');
+  u = u.replace(/\/remote\.php\/(?:dav|webdav).*$/i, '').replace(/\/+$/, '');
+  return u;
+}
+
+// Build a Nextcloud client from stored settings, or return { error }
+async function getNextcloudClient() {
+  const cfg = await chrome.storage.local.get(['nextcloudUrl', 'nextcloudUser', 'nextcloudAppPassword', 'nextcloudCalendarName']);
+  if (!cfg.nextcloudUrl || !cfg.nextcloudUser || !cfg.nextcloudAppPassword) {
+    return { error: 'Nextcloud credentials not configured — open the popup to save them.' };
+  }
+  let origin;
+  try { origin = new URL(normalizeNextcloudUrl(cfg.nextcloudUrl)).origin; }
+  catch { return { error: 'Nextcloud server URL is invalid.' }; }
+  const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
+  if (!granted) {
+    return { error: 'Permission for the Nextcloud server was not granted — open the popup and save the Nextcloud settings again.' };
+  }
+  return {
+    client: new NextcloudCalDAVClient(cfg.nextcloudUrl, cfg.nextcloudUser, cfg.nextcloudAppPassword),
+    calendarName: (cfg.nextcloudCalendarName || '').trim() || 'Work Shifts',
+  };
 }
 
 async function clearAndResyncToiCloud() {
@@ -1011,6 +1100,83 @@ async function syncToiCloud(events) {
   }
 }
 
+async function clearAndResyncToNextcloud() {
+  const { syncRunning } = await chrome.storage.local.get('syncRunning');
+  if (syncRunning) return { success: false, error: 'Sync already in progress' };
+
+  try {
+    const { lastEvents } = await chrome.storage.local.get('lastEvents');
+    const cfg = await getNextcloudClient();
+    if (cfg.error) return { success: false, error: cfg.error };
+    if (!lastEvents || !lastEvents.length) {
+      return { success: false, error: 'No shift data available — run a sync first.' };
+    }
+    const { client, calendarName } = cfg;
+    setProgress('Connecting to Nextcloud…', 68);
+    await client.connect();
+    const regularEvents = lastEvents.filter(e => !e.isAvailabilitySignup);
+    const signupEvents = lastEvents.filter(e => e.isAvailabilitySignup);
+
+    setProgress(`Loading ${calendarName} calendar…`, 71);
+    const calendarUrl = await client.findOrCreateCalendar(calendarName);
+    setProgress(`Clearing ${calendarName} calendar…`, 73);
+    await client.clearAllOurEvents(calendarUrl);
+
+    const signupCalendarUrl = await client.findOrCreateCalendar('Open Time Signup');
+    setProgress('Clearing Open Time Signup calendar…', 75);
+    await client.clearAllOurEvents(signupCalendarUrl);
+
+    await chrome.storage.local.set({ nextcloudSyncedOpenShiftUids: [] });
+    await client.syncEvents(calendarUrl, regularEvents, (step, fraction) => {
+      setProgress(step, 80 + Math.round(fraction * (signupEvents.length ? 9 : 18)));
+    });
+    if (signupEvents.length) {
+      await client.syncEvents(signupCalendarUrl, signupEvents, (step, fraction) => {
+        setProgress(step, 89 + Math.round(fraction * 9));
+      });
+    }
+    console.info('[ShiftsExport] Nextcloud clear & resync complete —', lastEvents.length, 'events');
+    return { success: true };
+  } catch (err) {
+    console.error('[ShiftsExport] Nextcloud clear & resync error:', err);
+    await chrome.storage.local.set({ nextcloudSyncedOpenShiftUids: [] }).catch(() => {});
+    return { success: false, error: err.message };
+  }
+}
+
+async function syncToNextcloud(events) {
+  try {
+    const cfg = await getNextcloudClient();
+    if (cfg.error) return { success: false, error: cfg.error };
+    const { client, calendarName } = cfg;
+    setProgress('Connecting to Nextcloud…', 75);
+    await client.connect();
+
+    const regularEvents = events.filter(e => !e.isAvailabilitySignup);
+    const signupEvents = events.filter(e => e.isAvailabilitySignup);
+
+    setProgress(`Loading ${calendarName} calendar…`, 79);
+    const calendarUrl = await client.findOrCreateCalendar(calendarName);
+    await client.syncEvents(calendarUrl, regularEvents, (step, fraction) => {
+      setProgress(step, 83 + Math.round(fraction * (signupEvents.length ? 7 : 14)));
+    });
+
+    if (signupEvents.length) {
+      setProgress('Loading Open Time Signup calendar…', 90);
+      const signupCalendarUrl = await client.findOrCreateCalendar('Open Time Signup');
+      await client.syncEvents(signupCalendarUrl, signupEvents, (step, fraction) => {
+        setProgress(step, 90 + Math.round(fraction * 7));
+      });
+    }
+
+    console.info('[ShiftsExport] Nextcloud sync complete —', events.length, 'events');
+    return { success: true };
+  } catch (err) {
+    console.error('[ShiftsExport] Nextcloud CalDAV error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
 // ─── Message Handler (from popup) ────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -1059,6 +1225,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.action === 'SET_IMPORT_TO_NEXTCLOUD') {
+    chrome.storage.local.set({ importToNextcloud: msg.value });
+    return false;
+  }
+
   if (msg.action === 'DOWNLOAD_ICS') {
     chrome.storage.local.get('lastICS', (data) => {
       if (!data.lastICS) {
@@ -1078,10 +1249,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'CLEAR_AND_REIMPORT') {
     (async () => {
       try {
-        const { importToOutlook, importToiCloud } = await chrome.storage.local.get(['importToOutlook', 'importToiCloud']);
+        const { importToOutlook, importToiCloud, importToNextcloud } = await chrome.storage.local.get(['importToOutlook', 'importToiCloud', 'importToNextcloud']);
 
         // Scrape fresh shifts — skip iCloud sync here; we handle it below with a full clear+resync
-        const exportResult = await runExport({ auto: false, skipICloud: true });
+        const exportResult = await runExport({ auto: false, skipICloud: true, skipNextcloud: true });
         if (!exportResult.success) {
           try { sendResponse({ success: false, error: exportResult.error }); } catch {}
           return;
@@ -1090,6 +1261,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const { lastICS, lastCount } = await chrome.storage.local.get(['lastICS', 'lastCount']);
         let outlookResult = null;
         let icloudResult = null;
+        let nextcloudResult = null;
 
         // Clear + reimport to Outlook
         if (importToOutlook) {
@@ -1114,9 +1286,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           icloudResult = await clearAndResyncToiCloud();
         }
 
+        // Clear + reimport to Nextcloud
+        if (importToNextcloud) {
+          nextcloudResult = await clearAndResyncToNextcloud();
+        }
+
         const success = (!importToOutlook || outlookResult?.success) &&
-                        (!importToiCloud || icloudResult?.success);
-        try { sendResponse({ success, count: lastCount, outlookResult, icloudResult }); } catch {}
+                        (!importToiCloud || icloudResult?.success) &&
+                        (!importToNextcloud || nextcloudResult?.success);
+        try { sendResponse({ success, count: lastCount, outlookResult, icloudResult, nextcloudResult }); } catch {}
       } catch (err) {
         try { sendResponse({ success: false, error: err.message }); } catch {}
       }

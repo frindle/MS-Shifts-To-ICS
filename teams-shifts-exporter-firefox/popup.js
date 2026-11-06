@@ -246,6 +246,101 @@ saveICloudCredsBtn.addEventListener('click', () => {
   });
 });
 
+
+const importToNextcloudEl = document.getElementById('importToNextcloud');
+const nextcloudCredsSectionEl = document.getElementById('nextcloudCredsSection');
+const nextcloudCredsChevronEl = document.getElementById('nextcloudCredsChevron');
+const nextcloudUrlEl = document.getElementById('nextcloudUrl');
+const nextcloudUserEl = document.getElementById('nextcloudUser');
+const nextcloudAppPasswordEl = document.getElementById('nextcloudAppPassword');
+const nextcloudCalendarNameEl = document.getElementById('nextcloudCalendarName');
+const saveNextcloudCredsBtn = document.getElementById('saveNextcloudCredsBtn');
+const nextcloudCredsStatusEl = document.getElementById('nextcloudCredsStatus');
+
+function setNextcloudCredsCollapsed(collapsed) {
+  nextcloudCredsSectionEl.style.display = collapsed ? 'none' : 'block';
+  nextcloudCredsChevronEl.classList.toggle('open', !collapsed);
+}
+
+// Origin pattern for the user-entered server (e.g. https://cloud.example.com/*)
+function nextcloudOriginPattern(url) {
+  try {
+    const u = new URL(url.trim().replace(/\/+$/, ''));
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    return `${u.origin}/*`;
+  } catch { return null; }
+}
+
+chrome.storage.local.get(
+  ['importToNextcloud', 'nextcloudUrl', 'nextcloudUser', 'nextcloudAppPassword', 'nextcloudCalendarName', 'nextcloudCredsSet'],
+  (data) => {
+    if (data.importToNextcloud) {
+      importToNextcloudEl.checked = true;
+      nextcloudCredsChevronEl.style.display = 'inline';
+      if (!data.nextcloudCredsSet) setNextcloudCredsCollapsed(false);
+    }
+    if (data.nextcloudUrl) nextcloudUrlEl.value = data.nextcloudUrl;
+    if (data.nextcloudUser) nextcloudUserEl.value = data.nextcloudUser;
+    if (data.nextcloudAppPassword) nextcloudAppPasswordEl.value = data.nextcloudAppPassword;
+    if (data.nextcloudCalendarName) nextcloudCalendarNameEl.value = data.nextcloudCalendarName;
+  }
+);
+
+importToNextcloudEl.addEventListener('change', () => {
+  const on = importToNextcloudEl.checked;
+  nextcloudCredsChevronEl.style.display = on ? 'inline' : 'none';
+  if (on) {
+    chrome.storage.local.get('nextcloudCredsSet', (data) => {
+      if (!data.nextcloudCredsSet) setNextcloudCredsCollapsed(false);
+    });
+  } else {
+    nextcloudCredsSectionEl.style.display = 'none';
+  }
+  chrome.storage.local.set({ importToNextcloud: on });
+});
+
+nextcloudCredsChevronEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  setNextcloudCredsCollapsed(nextcloudCredsSectionEl.style.display !== 'none');
+});
+
+// Save Nextcloud settings. The permission request must run synchronously inside
+// the click handler (user gesture), so it is issued before anything async.
+saveNextcloudCredsBtn.addEventListener('click', () => {
+  const url = nextcloudUrlEl.value.trim().replace(/\/+$/, '');
+  const user = nextcloudUserEl.value.trim();
+  const password = nextcloudAppPasswordEl.value.trim();
+  const calendarName = nextcloudCalendarNameEl.value.trim();
+  const pattern = nextcloudOriginPattern(url);
+  if (!url || !user || !password) {
+    nextcloudCredsStatusEl.textContent = 'Enter server URL, username and app password.';
+    nextcloudCredsStatusEl.style.color = '#F48120';
+    return;
+  }
+  if (!pattern) {
+    nextcloudCredsStatusEl.textContent = 'Server URL must start with https:// (or http://).';
+    nextcloudCredsStatusEl.style.color = '#F48120';
+    return;
+  }
+  chrome.permissions.request({ origins: [pattern] }, (granted) => {
+    if (granted) {
+      nextcloudAppPasswordEl.value = '';
+      nextcloudCredsStatusEl.textContent = '';
+      setNextcloudCredsCollapsed(true);
+    } else {
+      nextcloudCredsStatusEl.textContent = 'Access to the server was not granted — syncing will fail until it is.';
+      nextcloudCredsStatusEl.style.color = '#F48120';
+    }
+  });
+  chrome.storage.local.set({
+    nextcloudUrl: url,
+    nextcloudUser: user,
+    nextcloudAppPassword: password,
+    nextcloudCalendarName: calendarName,
+    nextcloudCredsSet: true,
+  });
+});
+
 // Save open shifts toggles
 includeOpenShiftsEl.addEventListener('change', () => {
   chrome.runtime.sendMessage({ action: 'SET_INCLUDE_OPEN_SHIFTS', value: includeOpenShiftsEl.checked });
@@ -279,6 +374,11 @@ clearReimportBtn.addEventListener('click', () => {
           ? ' iCloud cleared & re-synced.'
           : ` iCloud error: ${response.icloudResult.error}`;
       }
+      if (response.nextcloudResult) {
+        msg += response.nextcloudResult.success
+          ? ' Nextcloud cleared & re-synced.'
+          : ` Nextcloud error: ${response.nextcloudResult.error}`;
+      }
       logEl.textContent = msg;
       logEl.className = 'ok';
     } else {
@@ -307,6 +407,11 @@ exportBtn.addEventListener('click', () => {
         msg += response.icloudResult.success
           ? ' iCloud updated.'
           : ` iCloud error: ${response.icloudResult.error}`;
+      }
+      if (response.nextcloudResult) {
+        msg += response.nextcloudResult.success
+          ? ' Nextcloud updated.'
+          : ` Nextcloud error: ${response.nextcloudResult.error}`;
       }
       logEl.textContent = msg;
       logEl.className = 'ok';

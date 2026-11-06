@@ -212,6 +212,16 @@
       padding-bottom: 4px;
     }
 
+    #nextcloudCredsSection {
+      display: none;
+      border-top: 1px solid #0277a8;
+      background: #012040;
+      padding: 10px 12px 12px;
+    }
+    #nextcloudCredsSection .field {
+      margin-bottom: 10px;
+    }
+
     .section-label {
       font-size: 10px;
       text-transform: uppercase;
@@ -346,6 +356,36 @@
           <button id="saveICloudCredsBtn" style="background:#1a6a9a; color:#e8edf2;">Save Credentials</button>
           <div id="icloudCredsStatus" style="font-size:10px; margin-top:6px; color:#7bacc8;"></div>
         </div>
+      </div>
+      <div class="sync-row">
+        <label for="importToNextcloud" style="flex:1; cursor:pointer;">Nextcloud / CalDAV</label>
+        <div class="sync-row-right">
+          <span class="icloud-chevron" id="nextcloudCredsChevron">&#9660;</span>
+          <input type="checkbox" id="importToNextcloud" />
+        </div>
+      </div>
+      <div id="nextcloudCredsSection">
+        <div class="field">
+          <label>Server URL</label>
+          <input type="text" id="nextcloudUrl" placeholder="https://cloud.example.com" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="nextcloudUser" placeholder="username" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>App Password</label>
+          <input type="password" id="nextcloudAppPassword" placeholder="xxxxx-xxxxx-xxxxx-xxxxx-xxxxx" autocomplete="off" />
+          <div class="field-hint">
+            Create one in Nextcloud &rarr; Personal settings &rarr; Security &rarr; Devices &amp; sessions
+          </div>
+        </div>
+        <div class="field">
+          <label>Calendar name</label>
+          <input type="text" id="nextcloudCalendarName" placeholder="Work Shifts" autocomplete="off" />
+        </div>
+        <button id="saveNextcloudCredsBtn" style="background:#1a6a9a; color:#e8edf2;">Save &amp; Grant Access</button>
+        <div id="nextcloudCredsStatus" style="font-size:10px; margin-top:6px; color:#7bacc8;"></div>
       </div>
     </div>
 

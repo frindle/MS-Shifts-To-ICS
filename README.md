@@ -1,6 +1,6 @@
 # MS Shifts To ICS
 
-Browser extensions that scrape your Microsoft Teams Shifts schedule and export it to a calendar (ICS / Outlook / iCloud).
+Browser extensions that scrape your Microsoft Teams Shifts schedule and export it to a calendar (ICS / Outlook / iCloud / Nextcloud).
 
 ## Download
 
@@ -20,7 +20,7 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 ## Features
 
 - Scrapes your Teams Shifts schedule (including open shifts)
-- Exports to ICS file, Outlook Calendar, or iCloud Calendar
+- Exports to ICS file, Outlook Calendar, iCloud Calendar, or Nextcloud (CalDAV)
 - Auto-syncs on a daily schedule
 - Skips open shifts that overlap or are within 8 hours of your assigned shifts
 - Supports midnight-crossing shifts
@@ -29,9 +29,26 @@ Load unpacked from the `teams-shifts-exporter-chrome` folder:
 
 1. Open Microsoft Teams Shifts in your browser
 2. Click the extension icon and hit **Sync Shifts**
-3. Optionally enable **Outlook Calendar** or **iCloud Calendar** sync in the popup
+3. Optionally enable **Outlook Calendar**, **iCloud Calendar** or **Nextcloud / CalDAV** sync in the popup
+
+### Nextcloud / CalDAV setup
+
+1. In Nextcloud, go to **Personal settings → Security → Devices & sessions** and create an **app password**.
+2. In the extension popup, enable **Nextcloud / CalDAV** and enter your server URL (e.g. `https://cloud.example.com`), username, app password and calendar name (default `Work Shifts`).
+3. Click **Save & Grant Access** and accept the browser prompt to allow the extension to reach that server (the URL is user-entered, so the permission is requested at save time).
+
+The calendar is created if it does not exist. Nextcloud sync tracks its own state, separate from iCloud, so both can be enabled at once.
+
+If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reachable from the browser or container, for example via a LAN URL or a bypass policy for `/remote.php/dav`.
+
+**Docker:** set `NEXTCLOUD_URL`, `NEXTCLOUD_USER`, `NEXTCLOUD_APP_PASSWORD` (and optionally `NEXTCLOUD_CALENDAR_NAME`) in the container environment, or fill in the Nextcloud section of the dashboard. Dashboard values take precedence over environment variables.
 
 ## Changelog
+
+### v1.67
+- **Added Nextcloud / CalDAV sync target** alongside iCloud (Chrome, Firefox and Docker). Uses an app password, discovers the calendar home via `/remote.php/dav/`, and keeps its own open-shift tracking so it never interferes with iCloud state.
+- The CalDAV code is now a generic client; iCloud is a thin wrapper around it with unchanged behavior.
+- Server URL access is requested as an optional host permission when you save the Nextcloud settings.
 
 ### v1.66
 - **Fixed shift times exported in the wrong timezone** — ICS events are now

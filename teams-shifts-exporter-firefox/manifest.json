@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Teams Shifts to ICS",
-  "version": "1.66",
+  "version": "1.67",
   "description": "Scrape Microsoft Teams Shifts and export to ICS calendar file",
   "browser_specific_settings": {
     "gecko": {
@@ -30,6 +30,7 @@
     "https://*.icloud.com/*",
     "https://raw.githubusercontent.com/*"
   ],
+  "optional_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "scripts": ["background.js"],
     "persistent": true
