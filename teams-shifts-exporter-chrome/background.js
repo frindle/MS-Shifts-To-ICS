@@ -398,9 +398,26 @@ async function runExport({ auto = false, skipICloud = false, skipNextcloud = fal
 
     // Update last export time and store ICS for clear & re-import
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents, lastExportSuccess: Date.now() });
-
-    chrome.storage.local.set({ lastError: null });
     clearProgress();
+    // A calendar target that failed makes this sync a failure in the popup, and a
+    // notification on automatic runs, instead of being dropped.
+    const targetError = [
+      icloudResult && !icloudResult.success ? `iCloud: ${icloudResult.error}` : null,
+      nextcloudResult && !nextcloudResult.success ? `Nextcloud: ${nextcloudResult.error}` : null,
+    ].filter(Boolean).join(' · ');
+    if (targetError) {
+      chrome.storage.local.set({ lastError: targetError, lastErrorTime: Date.now() + 1 });
+      if (auto) {
+        chrome.notifications.create('calendar-sync-failed', {
+          type: 'basic',
+          iconUrl: 'icon128.png',
+          title: 'Teams Shifts — Calendar Sync Failed',
+          message: targetError,
+        });
+      }
+    } else {
+      chrome.storage.local.set({ lastError: null });
+    }
     return { success: true, count: mergedEvents.length, outlookResult, icloudResult, nextcloudResult };
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
@@ -782,9 +799,13 @@ class CalDAVClient {
     return newCalUrl;
   }
 
-  // REPORT the calendar to get a map of { uid -> { url, etag } } for our events
+  // REPORT the calendar to get a map of { uid -> { url, etag } } for our events.
+  // Matches on the UID inside each event, not the filename: a calendar that was
+  // copied or imported into the server keeps our UIDs under new filenames, and
+  // a PUT to <uid>.ics would then be refused as a duplicate UID. Falls back to
+  // the filename when the server doesn't return calendar-data.
   async getOurEvents(calendarUrl) {
-    const reportBody = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/></D:prop><C:filter><C:comp-filter name="VCALENDAR"/></C:filter></C:calendar-query>`;
+    const reportBody = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/><C:calendar-data/></D:prop><C:filter><C:comp-filter name="VCALENDAR"/></C:filter></C:calendar-query>`;
     const res = await this.request(calendarUrl, 'REPORT', reportBody, { 'Depth': '1' });
     if (res.status !== 207 && !res.ok) throw new Error(`${this.label} REPORT failed (HTTP ${res.status})`);
 
@@ -793,12 +814,12 @@ class CalDAVClient {
     for (const block of this._responseBlocks(xml)) {
       const href = this._tagText(block, 'href');
       if (!href || !href.endsWith('.ics')) continue;
-      const filename = href.split('/').pop().replace('.ics', '');
-      if (filename.startsWith('teams-shift-')) {
+      const uid = ourUidFromCalendarData(block) || href.split('/').pop().replace(/\.ics$/, '');
+      if (uid.startsWith('teams-shift-')) {
         const rawEtag = this._tagText(block, 'getetag') || '';
-        result.set(filename, {
+        result.set(uid, {
           url: this._abs(href),
-          etag: rawEtag.replace(/^"|"$/g, ''), // strip surrounding quotes
+          etag: rawEtag.replace(/^"|"$/g, '').replace(/^&quot;|&quot;$/g, ''), // strip surrounding quotes
         });
       }
     }
@@ -809,16 +830,17 @@ class CalDAVClient {
   // already exists (412), retries as an unconditional update. This avoids needing
   // to track ETags while still satisfying iCloud's precondition requirements.
   // Retries up to 2 times on timeout/network errors to handle iCloud stalls.
-  async putEvent(calendarUrl, uid, icsContent) {
+  // existingUrl: where the server already holds this UID (its filename may differ).
+  async putEvent(calendarUrl, uid, icsContent, existingUrl = null) {
     const base = calendarUrl.endsWith('/') ? calendarUrl : calendarUrl + '/';
-    const url = `${base}${uid}.ics`;
+    const url = existingUrl || `${base}${uid}.ics`;
     const headers = { 'Content-Type': 'text/calendar; charset=utf-8' };
 
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) await sleep(2000 * attempt);
-        let res = await this.request(url, 'PUT', icsContent, { ...headers, 'If-None-Match': '*' });
+        let res = await this.request(url, 'PUT', icsContent, existingUrl ? headers : { ...headers, 'If-None-Match': '*' });
         if (res.status === 412) {
           res = await this.request(url, 'PUT', icsContent, headers);
         }
@@ -862,6 +884,9 @@ class CalDAVClient {
 
     // Load the set of open shift UIDs we've already pushed to iCloud
     const storedUids = (await chrome.storage.local.get(this.openKey))[this.openKey] || [];
+
+    // Our events already on the server, by UID (their filenames may not be <uid>.ics)
+    const existingOurEvents = await this.getOurEvents(calendarUrl);
     const syncedOpenShiftUids = new Set(storedUids);
 
     // Pre-calculate how many events will actually be uploaded so the fraction
@@ -881,14 +906,14 @@ class CalDAVClient {
         if (!syncedOpenShiftUids.has(uid)) {
           await checkCancelled();
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
-          await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+          await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid), existingOurEvents.get(uid)?.url);
           syncedOpenShiftUids.add(uid);
         }
       } else {
         // Scheduled shifts and signed-up availability slots: always upsert
         await checkCancelled();
         if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
-        await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid));
+        await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid), existingOurEvents.get(uid)?.url);
         // Pace requests to avoid iCloud rate-limiting
         await sleep(250);
       }
@@ -897,7 +922,6 @@ class CalDAVClient {
     // Delete stale future events that are no longer in Teams
     if (onProgress) onProgress(`Checking ${this.label} calendar…`, 0.97);
     await checkCancelled();
-    const existingOurEvents = await this.getOurEvents(calendarUrl);
     const stale = [...existingOurEvents.entries()].filter(([uid]) => {
       if (currentUids.has(uid)) return false;
       const startMs = parseInt(uid.replace('teams-shift-', ''), 10);
@@ -943,6 +967,17 @@ class CalDAVClient {
     if (!m) return null;
     return this._tagText(m[1], 'href');
   }
+}
+
+// Our UID (without the @teams-shifts-export suffix) from a REPORT response
+// block's calendar-data, or null. Unfolds ICS lines and handles &#13; / CDATA.
+function ourUidFromCalendarData(block) {
+  const m = /<[a-zA-Z]*:?calendar-data[^>]*>([\s\S]*?)<\/[a-zA-Z]*:?calendar-data>/i.exec(block);
+  if (!m) return null;
+  const ics = m[1].replace(/^<!\[CDATA\[|\]\]>$/g, '').replace(/&#13;|&#xD;/gi, '\r').replace(/\r?\n[ \t]/g, '');
+  const u = /(?:^|\n)UID[^:\r\n]*:([^\r\n]+)/.exec(ics);
+  if (!u) return null;
+  return u[1].trim().replace(/&amp;/g, '&').replace(/@teams-shifts-export$/, '');
 }
 
 function xmlEscape(str) {

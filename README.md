@@ -45,6 +45,10 @@ If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reac
 
 ## Changelog
 
+### v1.68
+- **Fixed Nextcloud sync failing on every run after a calendar was copied or imported.** Events are now matched by the UID inside them, not by filename. A copied calendar keeps the extension's UIDs under new filenames, and Nextcloud refused each write to `<uid>.ics` as a duplicate UID (HTTP 400). Existing events are now updated where they are, and stale future ones are removed. The same applies to iCloud.
+- **Calendar sync failures are no longer reported as success.** If iCloud or Nextcloud fails, the popup shows "Last sync failed: …", and automatic runs send a notification. Before this, only a manual export showed the error.
+
 ### v1.67
 - **Added Nextcloud / CalDAV sync target** alongside iCloud (Chrome, Firefox and Docker). Uses an app password, discovers the calendar home via `/remote.php/dav/`, and keeps its own open-shift tracking so it never interferes with iCloud state.
 - The CalDAV code is now a generic client; iCloud is a thin wrapper around it with unchanged behavior.
