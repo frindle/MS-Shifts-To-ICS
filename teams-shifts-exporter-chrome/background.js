@@ -686,6 +686,21 @@ function buildSingleEventICS(event, uid) {
   return lines.join('\r\n');
 }
 
+// The reason a CalDAV server gives for refusing a request, e.g. Sabre/Nextcloud's
+// <s:message>. Returns ": <reason>" or ''. Never waits more than 5s for the body.
+async function serverReason(res) {
+  try {
+    const body = await Promise.race([res.text(), new Promise(r => setTimeout(() => r(''), 5000))]);
+    const m = /<(?:\w+:)?message>([\s\S]*?)<\/(?:\w+:)?message>/.exec(body || '');
+    if (!m) return '';
+    const text = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'").replace(/&#13;/g, '').replace(/&amp;/g, '&').trim();
+    return text ? `: ${text.slice(0, 300)}` : '';
+  } catch {
+    return '';
+  }
+}
+
 // Generic CalDAV client. Target-specific bits (label, discovery root, storage key
 // for open-shift tracking, fetch options) are passed in by the thin subclasses below.
 class CalDAVClient {
@@ -849,7 +864,7 @@ class CalDAVClient {
           res = await this.request(url, 'PUT', icsContent, headers);
         }
         if (res.status < 200 || res.status >= 300) {
-          throw new Error(`${this.label} PUT failed (HTTP ${res.status}) for ${uid}`);
+          throw new Error(`${this.label} PUT failed (HTTP ${res.status}) for ${uid}${await serverReason(res)}`);
         }
         return; // success
       } catch (err) {

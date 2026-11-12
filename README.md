@@ -45,6 +45,9 @@ If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reac
 
 ## Changelog
 
+### v1.70
+- **Calendar errors now say why the server refused an event.** When iCloud or Nextcloud rejects a shift, the error ends with the server's own reason (for example Nextcloud's "Validation error in iCalendar: …") instead of only the HTTP code.
+
 ### v1.69
 - **Fixed Nextcloud refusing every shift (HTTP 415).** Each event sent over CalDAV included `METHOD:PUBLISH`, which CalDAV servers built on Sabre (Nextcloud) reject: "A calendar object on a CalDAV server MUST NOT have a METHOD property." It's removed from events sent to iCloud and Nextcloud. The downloadable .ics file keeps it.
 - **Fixed every sync stopping with "Sync already in progress" after a Clear & Re-import.** The iCloud and Nextcloud clear steps never turned off the running flag, so later syncs, automatic ones too, refused to start and the popup kept showing the last step. The flag is now cleared whether the step works or fails.
