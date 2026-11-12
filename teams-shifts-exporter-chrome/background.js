@@ -350,6 +350,9 @@ async function runExport({ auto = false, skipICloud = false, skipNextcloud = fal
   const { syncRunning } = await chrome.storage.local.get('syncRunning');
   if (syncRunning) return { success: false, error: 'Sync already in progress' };
 
+  // A Cancel pressed while nothing was running leaves this set; clear it so the
+  // new sync doesn't stop at its first check with "Sync cancelled".
+  await chrome.storage.local.set({ syncCancelled: false });
   const stopWatchdog = startWatchdog(120000);
   try {
     chrome.storage.local.set({ lastError: null });
@@ -665,7 +668,8 @@ function buildSingleEventICS(event, uid) {
     'VERSION:2.0',
     'PRODID:-//Teams Shifts Export//EN',
     'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+    // No METHOD here: CalDAV servers built on Sabre (Nextcloud) refuse a calendar
+    // object that has one (HTTP 415). The downloadable .ics keeps METHOD:PUBLISH.
     'BEGIN:VEVENT',
     `UID:${uid}@teams-shifts-export`,
     `DTSTAMP:${toICSDateStr(Date.now())}`,
@@ -1093,6 +1097,11 @@ async function clearAndResyncToiCloud() {
     // didn't make it to iCloud due to this failure.
     await chrome.storage.local.set({ syncedOpenShiftUids: [] }).catch(() => {});
     return { success: false, error: err.message };
+  } finally {
+    // Without this the progress flag stays set, every later sync (including the
+    // automatic one) stops with "Sync already in progress", and the popup shows
+    // the last step forever.
+    clearProgress();
   }
 }
 
@@ -1176,6 +1185,8 @@ async function clearAndResyncToNextcloud() {
     console.error('[ShiftsExport] Nextcloud clear & resync error:', err);
     await chrome.storage.local.set({ nextcloudSyncedOpenShiftUids: [] }).catch(() => {});
     return { success: false, error: err.message };
+  } finally {
+    clearProgress();
   }
 }
 
@@ -1329,8 +1340,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const success = (!importToOutlook || outlookResult?.success) &&
                         (!importToiCloud || icloudResult?.success) &&
                         (!importToNextcloud || nextcloudResult?.success);
+        // Store failures so the popup shows them on its next open, since the
+        // popup that sent this message may already be closed.
+        const targetError = [
+          importToOutlook && !outlookResult?.success ? `Outlook: ${outlookResult?.error || 'no response'}` : null,
+          icloudResult && !icloudResult.success ? `iCloud: ${icloudResult.error}` : null,
+          nextcloudResult && !nextcloudResult.success ? `Nextcloud: ${nextcloudResult.error}` : null,
+        ].filter(Boolean).join(' · ');
+        await chrome.storage.local.set(targetError
+          ? { lastError: targetError, lastErrorTime: Date.now() + 1 }
+          : { lastError: null });
         try { sendResponse({ success, count: lastCount, outlookResult, icloudResult, nextcloudResult }); } catch {}
       } catch (err) {
+        clearProgress();
+        await chrome.storage.local.set({ lastError: err.message, lastErrorTime: Date.now() + 1 }).catch(() => {});
         try { sendResponse({ success: false, error: err.message }); } catch {}
       }
     })();

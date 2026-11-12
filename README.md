@@ -45,6 +45,12 @@ If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reac
 
 ## Changelog
 
+### v1.69
+- **Fixed Nextcloud refusing every shift (HTTP 415).** Each event sent over CalDAV included `METHOD:PUBLISH`, which CalDAV servers built on Sabre (Nextcloud) reject: "A calendar object on a CalDAV server MUST NOT have a METHOD property." It's removed from events sent to iCloud and Nextcloud. The downloadable .ics file keeps it.
+- **Fixed every sync stopping with "Sync already in progress" after a Clear & Re-import.** The iCloud and Nextcloud clear steps never turned off the running flag, so later syncs, automatic ones too, refused to start and the popup kept showing the last step. The flag is now cleared whether the step works or fails.
+- **Fixed the next sync stopping with "Sync cancelled"** after Cancel was pressed while nothing was running. Each sync now starts with that flag cleared.
+- **Clear & Re-import now saves its errors**, so the popup shows "Last sync failed: …" when you open it again, the same as a normal sync.
+
 ### v1.68
 - **Fixed Nextcloud sync failing on every run after a calendar was copied or imported.** Events are now matched by the UID inside them, not by filename. A copied calendar keeps the extension's UIDs under new filenames, and Nextcloud refused each write to `<uid>.ics` as a duplicate UID (HTTP 400). Existing events are now updated where they are, and stale future ones are removed. The same applies to iCloud.
 - **Calendar sync failures are no longer reported as success.** If iCloud or Nextcloud fails, the popup shows "Last sync failed: …", and automatic runs send a notification. Before this, only a manual export showed the error.
