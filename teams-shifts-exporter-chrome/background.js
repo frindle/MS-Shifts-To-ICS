@@ -682,8 +682,21 @@ function buildSingleEventICS(event, uid) {
     lines.push(`DESCRIPTION:${event.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
   }
   if (event.isOpenShift) lines.push('CATEGORIES:Open Shift');
+  // "No alert" (RFC 9074 ACTION:NONE, the form Apple Calendar writes itself).
+  // Without any VALARM, iPhone and Mac Calendar add their Default Alert Time to
+  // every event in a CalDAV calendar such as Nextcloud. The trigger is a fixed
+  // date in the past, so servers never schedule a reminder for it.
+  lines.push('BEGIN:VALARM', `UID:${uid}-no-alert`, 'TRIGGER;VALUE=DATE-TIME:19760401T005545Z', 'ACTION:NONE', 'END:VALARM');
   lines.push('END:VEVENT', 'END:VCALENDAR');
   return lines.join('\r\n');
+}
+
+// True when a REPORT block's calendar-data is an event with no VALARM at all:
+// one written before v1.71 that Apple devices give a default alert. False when
+// it has any VALARM (ours, or an alert the user set) or the server sent no data.
+function calendarDataLacksAlarm(block) {
+  const m = /<[a-zA-Z]*:?calendar-data[^>]*>([\s\S]*?)<\/[a-zA-Z]*:?calendar-data>/i.exec(block);
+  return !!m && /BEGIN:VEVENT/i.test(m[1]) && !/BEGIN:VALARM/i.test(m[1]);
 }
 
 // The reason a CalDAV server gives for refusing a request, e.g. Sabre/Nextcloud's
@@ -839,6 +852,7 @@ class CalDAVClient {
         result.set(uid, {
           url: this._abs(href),
           etag: rawEtag.replace(/^"|"$/g, '').replace(/^&quot;|&quot;$/g, ''), // strip surrounding quotes
+          lacksAlarm: calendarDataLacksAlarm(block),
         });
       }
     }
@@ -910,10 +924,14 @@ class CalDAVClient {
 
     // Pre-calculate how many events will actually be uploaded so the fraction
     // fills 0→1 over real uploads, not skipped open shifts.
+    // An open shift is sent when it was never pushed, or once more when the
+    // server still holds it without any alarm (written before v1.71), so it
+    // gets the "no alert" marker. One the user deleted stays deleted.
+    const openShiftNeedsPut = (uid) => !syncedOpenShiftUids.has(uid) || !!existingOurEvents.get(uid)?.lacksAlarm;
     const total = events.filter((e) => {
       if (!e.isOpenShift || e.isAvailabilitySignup) return true;
       const uid = `teams-shift-${e.startMs}-${e.summary.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
-      return !syncedOpenShiftUids.has(uid);
+      return openShiftNeedsPut(uid);
     }).length || 1;
 
     for (const event of events) {
@@ -921,8 +939,7 @@ class CalDAVClient {
       currentUids.add(uid);
 
       if (event.isOpenShift && !event.isAvailabilitySignup) {
-        // Only add open shifts we haven't pushed before
-        if (!syncedOpenShiftUids.has(uid)) {
+        if (openShiftNeedsPut(uid)) {
           await checkCancelled();
           if (onProgress) onProgress(`Uploading shift ${++uploaded} of ${total}…`, uploaded / total);
           await this.putEvent(calendarUrl, uid, buildSingleEventICS(event, uid), existingOurEvents.get(uid)?.url);

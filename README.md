@@ -45,6 +45,9 @@ If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reac
 
 ## Changelog
 
+### v1.71
+- **Shifts synced to Nextcloud or iCloud no longer get an alert.** Each event now carries an explicit "no alert" (`ACTION:NONE`, the form Apple Calendar writes itself). Without it, iPhone and Mac Calendar gave every shift the Default Alert Time from Settings. Scheduled shifts get the change on the next sync. Open shifts already on the calendar with no alarm are rewritten once. An open shift with an alert you set yourself is left alone, and one you deleted stays deleted.
+
 ### v1.70
 - **Calendar errors now say why the server refused an event.** When iCloud or Nextcloud rejects a shift, the error ends with the server's own reason (for example Nextcloud's "Validation error in iCalendar: …") instead of only the HTTP code.
 
