@@ -14,6 +14,7 @@ function loadSettings() {
   const defaults = {
     importToOutlook: false, importToiCloud: false, icloudEmail: '', icloudAppPassword: '', includeOpenShifts: true,
     importToNextcloud: false, nextcloudUrl: '', nextcloudUser: '', nextcloudAppPassword: '', nextcloudCalendarName: '',
+    workLocation: '', workGeo: '',
   };
   let saved = {};
   try { saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')); } catch {}
@@ -23,6 +24,8 @@ function loadSettings() {
   s.nextcloudUser         = s.nextcloudUser         || process.env.NEXTCLOUD_USER || '';
   s.nextcloudAppPassword  = s.nextcloudAppPassword  || process.env.NEXTCLOUD_APP_PASSWORD || '';
   s.nextcloudCalendarName = s.nextcloudCalendarName || process.env.NEXTCLOUD_CALENDAR_NAME || '';
+  s.workLocation          = s.workLocation          || process.env.WORK_LOCATION || '';
+  s.workGeo               = s.workGeo               || process.env.WORK_GEO || '';
   if (saved.importToNextcloud === undefined && s.nextcloudUrl && s.nextcloudUser && s.nextcloudAppPassword) {
     s.importToNextcloud = true;
   }
@@ -168,6 +171,8 @@ async function runSync() {
           nextcloudUser:         ${JSON.stringify(settings.nextcloudUser)},
           nextcloudAppPassword:  ${JSON.stringify(settings.nextcloudAppPassword)},
           nextcloudCalendarName: ${JSON.stringify(settings.nextcloudCalendarName)},
+          workLocation:          ${JSON.stringify(settings.workLocation)},
+          workGeo:               ${JSON.stringify(settings.workGeo)},
         });
       })()`,
       true

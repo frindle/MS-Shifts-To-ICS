@@ -43,7 +43,16 @@ If your server sits behind Cloudflare Access / SSO, the CalDAV path must be reac
 
 **Docker:** set `NEXTCLOUD_URL`, `NEXTCLOUD_USER`, `NEXTCLOUD_APP_PASSWORD` (and optionally `NEXTCLOUD_CALENDAR_NAME`) in the container environment, or fill in the Nextcloud section of the dashboard. Dashboard values take precedence over environment variables.
 
+### Shift location
+
+Open **Shift location** in the popup and enter your work address, and optionally its coordinates (`latitude, longitude`). Every timed shift then carries the address as its location. With coordinates, each shift also gets `GEO` and Apple's structured location, so Calendar shows a map pin and travel time without looking the address up. Time off and availability sign-ups get no location. Leave both fields empty to turn it off.
+
+**Docker:** fill in the two Shift location fields on the dashboard, or set `WORK_LOCATION` and `WORK_GEO` in the container environment. Dashboard values take precedence.
+
 ## Changelog
+
+### v1.72
+- **Shifts can carry your work location.** A new optional **Shift location** setting (popup and Docker dashboard, or `WORK_LOCATION` / `WORK_GEO` for Docker) adds your work address to every timed shift as `LOCATION`. With coordinates, it also adds `GEO` and `X-APPLE-STRUCTURED-LOCATION`, so calendar apps and other planners know where each shift is. Scheduled shifts already on iCloud or Nextcloud get the location on the next sync. Clear the fields to remove it again. Nothing is looked up online.
 
 ### v1.71
 - **Shifts synced to Nextcloud or iCloud no longer get an alert.** Each event now carries an explicit "no alert" (`ACTION:NONE`, the form Apple Calendar writes itself). Without it, iPhone and Mac Calendar gave every shift the Default Alert Time from Settings. Scheduled shifts get the change on the next sync. Open shifts already on the calendar with no alarm are rewritten once. An open shift with an alert you set yourself is left alone, and one you deleted stays deleted.
