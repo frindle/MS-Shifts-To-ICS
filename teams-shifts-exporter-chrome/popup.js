@@ -340,6 +340,36 @@ saveNextcloudCredsBtn.addEventListener('click', () => {
   });
 });
 
+// Shift location: optional address and "lat, lon" written on every timed shift.
+const workLocationEl = document.getElementById('workLocation');
+const workGeoEl = document.getElementById('workGeo');
+const workPlaceStatusEl = document.getElementById('workPlaceStatus');
+
+chrome.storage.local.get(['workLocation', 'workGeo'], (data) => {
+  if (data.workLocation) workLocationEl.value = data.workLocation;
+  if (data.workGeo) workGeoEl.value = data.workGeo;
+  if (data.workLocation || data.workGeo) {
+    workPlaceStatusEl.textContent = 'Saved. Shifts carry this location from the next sync.';
+  }
+});
+
+document.getElementById('saveWorkPlaceBtn').addEventListener('click', () => {
+  const location = workLocationEl.value.trim();
+  const geo = workGeoEl.value.trim();
+  const m = /^(-?\d{1,2}(?:\.\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:\.\d+)?)$/.exec(geo);
+  if (geo && (!m || Math.abs(Number(m[1])) > 90 || Math.abs(Number(m[2])) > 180)) {
+    workPlaceStatusEl.textContent = 'Coordinates must look like 40.7128, -74.0060 (latitude, longitude).';
+    workPlaceStatusEl.style.color = '#F48120';
+    return;
+  }
+  chrome.storage.local.set({ workLocation: location, workGeo: geo }, () => {
+    workPlaceStatusEl.style.color = '#7bacc8';
+    workPlaceStatusEl.textContent = location || geo
+      ? 'Saved. Shifts carry this location from the next sync.'
+      : 'Cleared. Shifts will have no location from the next sync.';
+  });
+});
+
 // Save open shifts toggles
 includeOpenShiftsEl.addEventListener('change', () => {
   chrome.runtime.sendMessage({ action: 'SET_INCLUDE_OPEN_SHIFTS', value: includeOpenShiftsEl.checked });

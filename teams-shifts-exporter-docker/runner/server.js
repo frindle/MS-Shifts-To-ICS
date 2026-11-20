@@ -18,6 +18,8 @@ const DEFAULT_SETTINGS = {
   nextcloudUser:         '',
   nextcloudAppPassword:  '',
   nextcloudCalendarName: '',
+  workLocation:          '',
+  workGeo:               '',
 };
 
 // ─── Settings helpers ─────────────────────────────────────────────────────────
@@ -203,6 +205,16 @@ function renderDashboard() {
     </div>
   </div>
 
+  <div class="field">
+    <label>Shift location: work address (optional)</label>
+    <input type="text" id="workLocation" placeholder="Street, City, State" autocomplete="off" />
+  </div>
+  <div class="field">
+    <label>Shift location: coordinates (optional)</label>
+    <input type="text" id="workGeo" placeholder="40.7128, -74.0060" autocomplete="off" />
+    <div class="field-hint">Added to every timed shift as its location. With coordinates, calendars pin the exact spot without looking the address up.</div>
+  </div>
+
   <label class="toggle-row">
     <span>Include open shifts</span>
     <input type="checkbox" id="includeOpenShifts" />
@@ -227,6 +239,8 @@ async function loadSettings() {
   document.getElementById('nextcloudUrl').value            = s.nextcloudUrl || '';
   document.getElementById('nextcloudUser').value           = s.nextcloudUser || '';
   document.getElementById('nextcloudCalendarName').value   = s.nextcloudCalendarName || '';
+  document.getElementById('workLocation').value            = s.workLocation || '';
+  document.getElementById('workGeo').value                 = s.workGeo || '';
   toggleNextcloudCreds(!!s.importToNextcloud, /* expand */ !s.nextcloudUrl);
 }
 
@@ -288,6 +302,8 @@ async function saveSettings() {
   body.nextcloudUrl          = document.getElementById('nextcloudUrl').value.trim();
   body.nextcloudUser         = document.getElementById('nextcloudUser').value.trim();
   body.nextcloudCalendarName = document.getElementById('nextcloudCalendarName').value.trim();
+  body.workLocation          = document.getElementById('workLocation').value.trim();
+  body.workGeo               = document.getElementById('workGeo').value.trim();
   const ncpw = document.getElementById('nextcloudAppPassword').value.trim();
   if (ncpw) body.nextcloudAppPassword = ncpw;
 

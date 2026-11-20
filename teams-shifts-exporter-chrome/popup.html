@@ -222,6 +222,23 @@
       margin-bottom: 10px;
     }
 
+    #workPlaceSection {
+      background: #01466e;
+      border: 1px solid #0277a8;
+      border-radius: 6px;
+      margin-bottom: 14px;
+      padding: 0 12px;
+    }
+    #workPlaceSection summary {
+      font-size: 12px;
+      color: #e8edf2;
+      padding: 9px 0;
+      cursor: pointer;
+      user-select: none;
+    }
+    #workPlaceSection[open] { padding-bottom: 12px; }
+    #workPlaceSection .field { margin-bottom: 10px; }
+
     .section-label {
       font-size: 10px;
       text-transform: uppercase;
@@ -388,6 +405,23 @@
         <div id="nextcloudCredsStatus" style="font-size:10px; margin-top:6px; color:#7bacc8;"></div>
       </div>
     </div>
+
+    <details id="workPlaceSection">
+      <summary>Shift location</summary>
+      <div class="field">
+        <label>Work address</label>
+        <input type="text" id="workLocation" placeholder="Street, City, State" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Coordinates (optional)</label>
+        <input type="text" id="workGeo" placeholder="40.7128, -74.0060" autocomplete="off" />
+        <div class="field-hint">
+          Added to every timed shift as its location. With coordinates, calendars pin the exact spot without looking the address up.
+        </div>
+      </div>
+      <button id="saveWorkPlaceBtn" style="background:#1a6a9a; color:#e8edf2;">Save Location</button>
+      <div id="workPlaceStatus" style="font-size:10px; margin-top:6px; color:#7bacc8;"></div>
+    </details>
 
     <label class="toggle-row">
       <span>Include open shifts</span>

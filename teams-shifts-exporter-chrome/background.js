@@ -375,7 +375,8 @@ async function runExport({ auto = false, skipICloud = false, skipNextcloud = fal
     });
 
     // Merge freshly scraped events with stored history, then rebuild ICS
-    const mergedEvents = await mergeWithHistory(events);
+    // History is stored without a place; the current setting is applied on top.
+    const mergedEvents = await withWorkPlace(await mergeWithHistory(events));
     const mergedICS = generateICS(mergedEvents);
 
     // Import to Outlook Web if the setting is enabled
@@ -544,6 +545,68 @@ async function mergeWithHistory(newEvents) {
   return merged;
 }
 
+// ─── Shift location ──────────────────────────────────────────────────────────
+// Optional work address and "lat, lon" from settings. Every timed shift gets the
+// address as LOCATION and, with coordinates, GEO plus Apple's structured location,
+// so calendars and planners know where the shift is. All-day items (time off,
+// availability sign-ups) never get one. Nothing is looked up online here.
+function parseGeo(text) {
+  const m = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/.exec(text || '');
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+}
+
+// Copies of events with the current setting's place on timed shifts. Any place an
+// event carried from an earlier sync is dropped first, so a changed or cleared
+// setting wins everywhere, including Clear & Re-import.
+async function withWorkPlace(events) {
+  const { workLocation = '', workGeo = '' } = await chrome.storage.local.get(['workLocation', 'workGeo']);
+  const place = String(workLocation || '').trim();
+  const geo = parseGeo(workGeo);
+  return events.map(({ place: _p, geo: _g, ...e }) => (e.isAllDay || (!place && !geo) ? e : { ...e, place, geo }));
+}
+
+function icsText(s) {
+  return s.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\;').replace(/\r?\n/g, '\\n');
+}
+
+// Quoted parameter values cannot hold a double quote or a line break.
+function icsParam(s) {
+  return s.replace(/"/g, "'").replace(/\r?\n/g, ', ');
+}
+
+// RFC 5545 folds content lines longer than 75 octets; a long address would
+// otherwise push the structured-location line past it.
+function foldLine(line) {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const parts = [];
+  let cur = '';
+  let n = 0;
+  let limit = 75;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (n + b > limit) { parts.push(cur); cur = ''; n = 0; limit = 74; }
+    cur += ch;
+    n += b;
+  }
+  parts.push(cur);
+  return parts.join('\r\n ');
+}
+
+function placeLines(ev) {
+  const lines = [];
+  if (ev.place) lines.push(`LOCATION:${icsText(ev.place)}`);
+  if (ev.geo) {
+    const title = icsParam(ev.place || 'Work');
+    lines.push(`GEO:${ev.geo.lat};${ev.geo.lon}`);
+    lines.push(`X-APPLE-STRUCTURED-LOCATION;VALUE=URI;X-ADDRESS="${title}";X-APPLE-RADIUS=100;X-TITLE="${title}":geo:${ev.geo.lat},${ev.geo.lon}`);
+  }
+  return lines.map(foldLine);
+}
+
 // Generate an ICS string from a flat array of { summary, startMs, endMs }
 function generateICS(events) {
   const pad = (n) => String(n).padStart(2, '0');
@@ -581,6 +644,7 @@ function generateICS(events) {
     if (ev.notes) {
       lines.push(`DESCRIPTION:${ev.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
     }
+    lines.push(...placeLines(ev));
     if (ev.isOpenShift) {
       lines.push('CATEGORIES:Open Shift');
     }
@@ -681,6 +745,7 @@ function buildSingleEventICS(event, uid) {
   if (event.notes) {
     lines.push(`DESCRIPTION:${event.notes.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n')}`);
   }
+  lines.push(...placeLines(event));
   if (event.isOpenShift) lines.push('CATEGORIES:Open Shift');
   // "No alert" (RFC 9074 ACTION:NONE, the form Apple Calendar writes itself).
   // Without any VALARM, iPhone and Mac Calendar add their Default Alert Time to
@@ -1089,7 +1154,8 @@ async function clearAndResyncToiCloud() {
   if (syncRunning) return { success: false, error: 'Sync already in progress' };
 
   try {
-    const { icloudEmail, icloudAppPassword, lastEvents } = await chrome.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
+    const { icloudEmail, icloudAppPassword, lastEvents: storedLast } = await chrome.storage.local.get(['icloudEmail', 'icloudAppPassword', 'lastEvents']);
+    const lastEvents = storedLast && (await withWorkPlace(storedLast));
     if (!icloudEmail || !icloudAppPassword) {
       return { success: false, error: 'iCloud credentials not configured — open the popup to save them.' };
     }
@@ -1181,7 +1247,8 @@ async function clearAndResyncToNextcloud() {
   if (syncRunning) return { success: false, error: 'Sync already in progress' };
 
   try {
-    const { lastEvents } = await chrome.storage.local.get('lastEvents');
+    const { lastEvents: storedLast } = await chrome.storage.local.get('lastEvents');
+    const lastEvents = storedLast && (await withWorkPlace(storedLast));
     const cfg = await getNextcloudClient();
     if (cfg.error) return { success: false, error: cfg.error };
     if (!lastEvents || !lastEvents.length) {
