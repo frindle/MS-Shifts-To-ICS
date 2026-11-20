@@ -22,7 +22,7 @@ services:
     shm_size: "256mb"
     networks:
       teams_shifts_net:
-        ipv4_address: 10.0.8.188
+        ipv4_address: ${SHIFTS_IPV4:?set SHIFTS_IPV4 in .env}
 
 networks:
   teams_shifts_net:
@@ -31,8 +31,8 @@ networks:
       parent: br0        # match your Unraid bridge interface (br0 is the default)
     ipam:
       config:
-        - subnet: 10.0.0.0/20
-          gateway: 10.0.0.1
+        - subnet: ${LAN_SUBNET:?set LAN_SUBNET in .env}
+          gateway: ${LAN_GATEWAY:?set LAN_GATEWAY in .env}
 
 volumes:
   chrome-profile:

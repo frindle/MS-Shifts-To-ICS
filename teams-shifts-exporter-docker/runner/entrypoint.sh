@@ -12,7 +12,7 @@ x11vnc -display :99 -forever -nopw -quiet &
 # Start HTTP server for force-sync and status
 node /app/runner/server.js &
 
-echo "[entrypoint] Container ready. VNC on port 5900, force-sync at http://10.0.8.188:8080"
+echo "[entrypoint] Container ready. VNC on port 5900, force-sync on port 8080"
 echo "[entrypoint] Running first sync..."
 
 # Run immediately on startup
