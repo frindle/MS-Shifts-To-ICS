@@ -379,38 +379,60 @@ async function runExport({ auto = false, skipICloud = false, skipNextcloud = fal
     const mergedEvents = await withWorkPlace(await mergeWithHistory(events));
     const mergedICS = generateICS(mergedEvents);
 
-    // Import to Outlook Web if the setting is enabled
-    const { importToOutlook } = await chrome.storage.local.get('importToOutlook');
-    let outlookResult = null;
-    if (importToOutlook) {
-      outlookResult = await importToOutlookWeb(mergedICS, auto);
-    }
-
-    // Sync to iCloud Calendar via CalDAV if enabled (skipped when CLEAR_AND_REIMPORT handles it)
-    const { importToiCloud } = await chrome.storage.local.get('importToiCloud');
-    let icloudResult = null;
-    if (importToiCloud && !skipICloud) {
-      icloudResult = await syncToiCloud(mergedEvents);
-    }
-
-    // Sync to Nextcloud via CalDAV if enabled (same skip rule as iCloud)
-    const { importToNextcloud } = await chrome.storage.local.get('importToNextcloud');
-    let nextcloudResult = null;
-    if (importToNextcloud && !skipNextcloud) {
-      nextcloudResult = await syncToNextcloud(mergedEvents);
-    }
-
-    // Update last export time and store ICS for clear & re-import
+    // The export itself is done here. Record it now so a slow or failing calendar
+    // destination below can never leave the "last export" line stale.
     await chrome.storage.local.set({ lastExport: Date.now(), lastCount: mergedEvents.length, lastICS: mergedICS, lastEvents: mergedEvents, lastExportSuccess: Date.now() });
+
+    let outlookResult = null;
+    let icloudResult = null;
+    let nextcloudResult = null;
+    let importToOutlook = false;
+    // The export succeeded above, so a throw from a destination is stored as a
+    // destination problem and not as a failed export.
+    try {
+      // Import to Outlook Web if the setting is enabled
+      ({ importToOutlook } = await chrome.storage.local.get('importToOutlook'));
+      if (importToOutlook) {
+        outlookResult = await importToOutlookWeb(mergedICS, auto);
+      }
+
+      // Sync to iCloud Calendar via CalDAV if enabled (skipped when CLEAR_AND_REIMPORT handles it)
+      const { importToiCloud } = await chrome.storage.local.get('importToiCloud');
+      if (importToiCloud && !skipICloud) {
+        icloudResult = await syncToiCloud(mergedEvents);
+      }
+
+      // Sync to Nextcloud via CalDAV if enabled (same skip rule as iCloud)
+      const { importToNextcloud } = await chrome.storage.local.get('importToNextcloud');
+      if (importToNextcloud && !skipNextcloud) {
+        nextcloudResult = await syncToNextcloud(mergedEvents);
+      }
+    } catch (destErr) {
+      console.error('[ShiftsExport] Destination error:', destErr);
+      const destMsg = destErr?.message || (typeof destErr === 'string' ? destErr : '') || destErr?.name || 'Unknown error';
+      clearProgress();
+      chrome.storage.local.set({ lastError: destMsg, lastErrorTime: Date.now() + 1, lastErrorScope: 'destination' });
+      if (auto) {
+        chrome.notifications.create('calendar-sync-failed', {
+          type: 'basic',
+          iconUrl: 'icon128.png',
+          title: 'Teams Shifts — Calendar Sync Failed',
+          message: destMsg,
+        });
+      }
+      return { success: true, count: mergedEvents.length, outlookResult, icloudResult, nextcloudResult };
+    }
+
     clearProgress();
     // A calendar target that failed makes this sync a failure in the popup, and a
     // notification on automatic runs, instead of being dropped.
     const targetError = [
+      importToOutlook && !outlookResult?.success ? `Outlook: ${outlookResult?.error || 'no response'}` : null,
       icloudResult && !icloudResult.success ? `iCloud: ${icloudResult.error}` : null,
       nextcloudResult && !nextcloudResult.success ? `Nextcloud: ${nextcloudResult.error}` : null,
     ].filter(Boolean).join(' · ');
     if (targetError) {
-      chrome.storage.local.set({ lastError: targetError, lastErrorTime: Date.now() + 1 });
+      chrome.storage.local.set({ lastError: targetError, lastErrorTime: Date.now() + 1, lastErrorScope: 'destination' });
       if (auto) {
         chrome.notifications.create('calendar-sync-failed', {
           type: 'basic',
@@ -426,7 +448,7 @@ async function runExport({ auto = false, skipICloud = false, skipNextcloud = fal
   } catch (err) {
     console.error('[ShiftsExport] Export error:', err);
     const errMsg = err?.message || (typeof err === 'string' ? err : '') || err?.name || 'Unknown error';
-    chrome.storage.local.set({ lastError: errMsg, lastErrorTime: Date.now() });
+    chrome.storage.local.set({ lastError: errMsg, lastErrorTime: Date.now() + 1, lastErrorScope: 'export' });
     if (auto) {
       chrome.notifications.create('sync-failed', {
         type: 'basic',
@@ -773,10 +795,56 @@ async function serverReason(res) {
     if (!m) return '';
     const text = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
       .replace(/&#39;|&apos;/g, "'").replace(/&#13;/g, '').replace(/&amp;/g, '&').trim();
-    return text ? `: ${text.slice(0, 300)}` : '';
+    // First line only, short, and with paths/URLs hidden: server text can name
+    // folders or users.
+    const line = text.split(/\r?\n/)[0].trim()
+      .replace(/(?:\b[a-z][a-z0-9+.-]*:\/\/|(?<!\w)(?:\/|\\|[a-z]:\\))\S*/gi, '…')
+      .slice(0, 120);
+    return line ? `: ${line}` : '';
   } catch {
     return '';
   }
+}
+
+// Host-permission match pattern for a server URL. Host only: match patterns
+// don't take a port, so "https://host:8443/x" becomes "https://host/*".
+function hostPermissionPattern(url) {
+  try {
+    const u = new URL(String(url || '').trim());
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    return `${u.protocol}//${u.hostname}/*`;
+  } catch { return null; }
+}
+
+// True/false from chrome.permissions.contains; true when it can't be asked, so
+// an unknown is never reported as a missing permission.
+async function hasHostPermission(url) {
+  const pattern = hostPermissionPattern(url);
+  if (!pattern) return true;
+  try { return !!(await chrome.permissions.contains({ origins: [pattern] })); }
+  catch { return true; }
+}
+
+// One plain sentence saying which CalDAV step failed and why. Pure: no URL,
+// credential or header ever goes in. step: discover | list | create | put | delete | test.
+// status is set when the server answered; otherwise the request itself threw.
+function describeCalDAVFailure({ label, step, status = null, host = '', permissionGranted = true,
+                                 timedOut = false, redirected = false, detail = '' }) {
+  const head = `${label} ${step} failed`;
+  if (status === null) {
+    if (!permissionGranted) {
+      return `${head}: the browser has not given this extension access to ${host || 'the server'}. Open the popup and press "Save & Grant Access" again.`;
+    }
+    if (timedOut) return `${head}: no answer from the server in time. Check it is reachable from this browser.`;
+    return `${head}: network error, no reply from the server. Likely reasons: the TLS certificate is not trusted (self-signed or private CA), the server name does not resolve or is unreachable from this browser (VPN, LAN-only), or a proxy dropped the connection. Try opening the server address in a normal tab.`;
+  }
+  let hint = '';
+  if (status === 401 || status === 403) hint = ' Check the username and app password.';
+  else if (status === 404) hint = ' Check the server URL (path, sub-folder).';
+  else if (status === 429) hint = ' The server is rate-limiting requests.';
+  else if (status >= 500) hint = ' The server reported an internal error.';
+  if (redirected) hint += ' The request was redirected; a proxy or sign-in page may be in front of the server.';
+  return `${head} (HTTP ${status}).${hint}${detail}`;
 }
 
 // Generic CalDAV client. Target-specific bits (label, discovery root, storage key
@@ -802,7 +870,8 @@ class CalDAVClient {
   }
 
   // fetch wrapper that manually follows redirects to preserve HTTP method
-  async request(url, method, body = null, extraHeaders = {}, timeoutMs = 20000) {
+  // `step` only labels error messages (see describeCalDAVFailure).
+  async request(url, method, body = null, extraHeaders = {}, step = 'request', timeoutMs = 20000) {
     const headers = {
       'Authorization': this.authHeader,
       'Content-Type': 'application/xml; charset=utf-8',
@@ -816,20 +885,36 @@ class CalDAVClient {
         .finally(() => clearTimeout(timer));
     };
 
+    // A thrown fetch carries no detail ("Failed to fetch"), so say what we can know.
+    const fetchOrExplain = async (fetchUrl) => {
+      try {
+        return await fetchWithTimeout(fetchUrl);
+      } catch (err) {
+        let host = '';
+        try { host = new URL(fetchUrl).host; } catch {}
+        throw new Error(describeCalDAVFailure({
+          label: this.label, step, host,
+          permissionGranted: await hasHostPermission(fetchUrl),
+          timedOut: err?.name === 'AbortError',
+        }));
+      }
+    };
+
     let currentUrl = url;
-    let response = await fetchWithTimeout(currentUrl);
+    let response = await fetchOrExplain(currentUrl);
 
     let hops = 0;
     while (hops < 5) {
       const status = response.status;
       if (status === 0 || response.type === 'opaqueredirect') {
-        throw new Error(`${this.label} request got opaque redirect — credential or URL issue`);
+        // redirect:'manual' hides the Location, so this cannot be followed.
+        throw new Error(`${this.label} ${step} failed: the server redirected the request (http to https, a missing trailing path, a proxy or a sign-in page). Use the final https address as the server URL.`);
       }
       if (status === 301 || status === 302 || status === 307 || status === 308) {
         const location = response.headers.get('Location');
         if (!location) break;
         currentUrl = new URL(location, currentUrl).href;
-        response = await fetchWithTimeout(currentUrl);
+        response = await fetchOrExplain(currentUrl);
         hops++;
       } else {
         break;
@@ -839,16 +924,24 @@ class CalDAVClient {
     return response;
   }
 
+  // Error for an HTTP answer that was not acceptable, naming the failed step
+  async failure(res, step) {
+    return new Error(describeCalDAVFailure({
+      label: this.label, step, status: res.status, redirected: !!res.redirected,
+      detail: await serverReason(res),
+    }));
+  }
+
   // Discover the calendar-home-set URL for this account
   async connect() {
     const principalBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:current-user-principal/></D:prop></D:propfind>`;
-    let res = await this.request(this.rootUrl, 'PROPFIND', principalBody, { 'Depth': '0' });
+    let res = await this.request(this.rootUrl, 'PROPFIND', principalBody, { 'Depth': '0' }, 'discover');
     let principalPath = null;
     if (res.ok) {
       const principalXml = await res.text();
       principalPath = this._hrefInsideTag(principalXml, 'current-user-principal');
     } else if (!this.fallbackPrincipalUrl || res.status === 401 || res.status === 403) {
-      throw new Error(`${this.label} principal discovery failed (HTTP ${res.status}). ${this.credHint}`);
+      throw await this.failure(res, 'discover');
     }
     if (!principalPath && this.fallbackPrincipalUrl) principalPath = this.fallbackPrincipalUrl;
     if (!principalPath) throw new Error(`${this.label} did not return a principal URL. ${this.principalHint}`);
@@ -856,8 +949,8 @@ class CalDAVClient {
     const principalUrl = this._abs(principalPath);
 
     const homeBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><C:calendar-home-set/></D:prop></D:propfind>`;
-    res = await this.request(principalUrl, 'PROPFIND', homeBody, { 'Depth': '0' });
-    if (!res.ok) throw new Error(`${this.label} calendar-home-set discovery failed (HTTP ${res.status})`);
+    res = await this.request(principalUrl, 'PROPFIND', homeBody, { 'Depth': '0' }, 'discover');
+    if (!res.ok) throw await this.failure(res, 'discover');
 
     const homeXml = await res.text();
     const homePath = this._hrefInsideTag(homeXml, 'calendar-home-set');
@@ -872,11 +965,10 @@ class CalDAVClient {
   // fragile across iCloud's varying namespace prefixes.
   async findOrCreateCalendar(displayName) {
     const listBody = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/></D:prop></D:propfind>`;
-    const res = await this.request(this.calendarHomeUrl, 'PROPFIND', listBody, { 'Depth': '1' });
-    if (!res.ok) throw new Error(`${this.label} calendar listing failed (HTTP ${res.status})`);
+    const res = await this.request(this.calendarHomeUrl, 'PROPFIND', listBody, { 'Depth': '1' }, 'list');
+    if (!res.ok) throw await this.failure(res, 'list');
 
     const xml = await res.text();
-    console.info(`[${this.label}] Calendar list XML:`, xml);
 
     for (const block of this._responseBlocks(xml)) {
       const name = this._tagText(block, 'displayname');
@@ -890,9 +982,9 @@ class CalDAVClient {
     const uid = crypto.randomUUID();
     const newCalUrl = `${this.calendarHomeUrl}${uid}/`;
     const mkBody = `<?xml version="1.0" encoding="utf-8"?><C:mkcalendar xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:set><D:prop><D:displayname>${xmlEscape(displayName)}</D:displayname></D:prop></D:set></C:mkcalendar>`;
-    const mkRes = await this.request(newCalUrl, 'MKCALENDAR', mkBody);
-    if (mkRes.status !== 201) throw new Error(`${this.label} MKCALENDAR failed (HTTP ${mkRes.status})`);
-    console.info(`[${this.label}] Created calendar:`, displayName, newCalUrl);
+    const mkRes = await this.request(newCalUrl, 'MKCALENDAR', mkBody, {}, 'create');
+    if (mkRes.status !== 201) throw await this.failure(mkRes, 'create');
+    console.info(`[${this.label}] Created calendar:`, displayName);
     return newCalUrl;
   }
 
@@ -903,8 +995,8 @@ class CalDAVClient {
   // the filename when the server doesn't return calendar-data.
   async getOurEvents(calendarUrl) {
     const reportBody = `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/><C:calendar-data/></D:prop><C:filter><C:comp-filter name="VCALENDAR"/></C:filter></C:calendar-query>`;
-    const res = await this.request(calendarUrl, 'REPORT', reportBody, { 'Depth': '1' });
-    if (res.status !== 207 && !res.ok) throw new Error(`${this.label} REPORT failed (HTTP ${res.status})`);
+    const res = await this.request(calendarUrl, 'REPORT', reportBody, { 'Depth': '1' }, 'list');
+    if (res.status !== 207 && !res.ok) throw await this.failure(res, 'list');
 
     const xml = await res.text();
     const result = new Map(); // uid -> { url, etag }
@@ -938,12 +1030,12 @@ class CalDAVClient {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) await sleep(2000 * attempt);
-        let res = await this.request(url, 'PUT', icsContent, existingUrl ? headers : { ...headers, 'If-None-Match': '*' });
+        let res = await this.request(url, 'PUT', icsContent, existingUrl ? headers : { ...headers, 'If-None-Match': '*' }, 'put');
         if (res.status === 412) {
-          res = await this.request(url, 'PUT', icsContent, headers);
+          res = await this.request(url, 'PUT', icsContent, headers, 'put');
         }
         if (res.status < 200 || res.status >= 300) {
-          throw new Error(`${this.label} PUT failed (HTTP ${res.status}) for ${uid}${await serverReason(res)}`);
+          throw await this.failure(res, 'put');
         }
         return; // success
       } catch (err) {
@@ -955,9 +1047,9 @@ class CalDAVClient {
   }
 
   async deleteEvent(eventUrl) {
-    const res = await this.request(eventUrl, 'DELETE');
+    const res = await this.request(eventUrl, 'DELETE', null, {}, 'delete');
     if (res.status !== 204 && res.status !== 200) {
-      console.warn(`[${this.label}] DELETE returned`, res.status, 'for', eventUrl);
+      console.warn(`[${this.label}] DELETE returned HTTP ${res.status}`);
     }
   }
 
@@ -1116,6 +1208,28 @@ class NextcloudCalDAVClient extends CalDAVClient {
       principalHint: 'Check the server URL and that you are using an app password.',
       fallbackPrincipalUrl: `${base}/remote.php/dav/principals/users/${encodeURIComponent(user)}/`,
     });
+    this.testUrl = `${base}/remote.php/dav/calendars/${encodeURIComponent(user)}/`;
+  }
+
+  // One authenticated PROPFIND on the user's calendar collection. Throws the same
+  // step-named errors as a sync; nothing is written to the server.
+  async testConnection() {
+    const body = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>`;
+    const res = await this.request(this.testUrl, 'PROPFIND', body, { 'Depth': '0' }, 'test');
+    if (res.status !== 207 && !res.ok) throw await this.failure(res, 'test');
+    return res.status;
+  }
+}
+
+// Popup "Test connection": uses the saved settings, returns { success, status | error }
+async function testNextcloudConnection() {
+  try {
+    const cfg = await getNextcloudClient();
+    if (cfg.error) return { success: false, error: cfg.error };
+    const status = await cfg.client.testConnection();
+    return { success: true, status };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 }
 
@@ -1132,10 +1246,9 @@ async function getNextcloudClient() {
   if (!cfg.nextcloudUrl || !cfg.nextcloudUser || !cfg.nextcloudAppPassword) {
     return { error: 'Nextcloud credentials not configured — open the popup to save them.' };
   }
-  let origin;
-  try { origin = new URL(normalizeNextcloudUrl(cfg.nextcloudUrl)).origin; }
-  catch { return { error: 'Nextcloud server URL is invalid.' }; }
-  const granted = await chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false);
+  const pattern = hostPermissionPattern(normalizeNextcloudUrl(cfg.nextcloudUrl));
+  if (!pattern) return { error: 'Nextcloud server URL is invalid.' };
+  const granted = await chrome.permissions.contains({ origins: [pattern] }).catch(() => false);
   if (!granted) {
     return { error: 'Permission for the Nextcloud server was not granted — open the popup and save the Nextcloud settings again.' };
   }
@@ -1375,6 +1488,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.action === 'TEST_NEXTCLOUD') {
+    testNextcloudConnection().then((r) => {
+      try { sendResponse(r); } catch {}
+    });
+    return true;
+  }
+
   if (msg.action === 'DOWNLOAD_ICS') {
     chrome.storage.local.get('lastICS', (data) => {
       if (!data.lastICS) {
@@ -1447,12 +1567,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           nextcloudResult && !nextcloudResult.success ? `Nextcloud: ${nextcloudResult.error}` : null,
         ].filter(Boolean).join(' · ');
         await chrome.storage.local.set(targetError
-          ? { lastError: targetError, lastErrorTime: Date.now() + 1 }
+          ? { lastError: targetError, lastErrorTime: Date.now() + 1, lastErrorScope: 'destination' }
           : { lastError: null });
         try { sendResponse({ success, count: lastCount, outlookResult, icloudResult, nextcloudResult }); } catch {}
       } catch (err) {
         clearProgress();
-        await chrome.storage.local.set({ lastError: err.message, lastErrorTime: Date.now() + 1 }).catch(() => {});
+        await chrome.storage.local.set({ lastError: err.message, lastErrorTime: Date.now() + 1, lastErrorScope: 'export' }).catch(() => {});
         try { sendResponse({ success: false, error: err.message }); } catch {}
       }
     })();

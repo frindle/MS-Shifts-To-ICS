@@ -51,6 +51,11 @@ Open **Shift location** in the popup and enter your work address, and optionally
 
 ## Changelog
 
+### v1.73 (Firefox v1.69)
+- **"Last export" always updates after a good export.** It is recorded as soon as the shifts are read, so a slow or failing calendar destination can no longer leave it on an old date.
+- **Nextcloud errors say what failed.** Instead of a bare "Failed to fetch", the popup names the CalDAV step (discover, list, create, upload, delete) and the reason: no answer, a missing site permission, a redirect, or the server's status. URLs, paths and credentials are never shown.
+- **Test connection** for Nextcloud in the popup checks the saved settings with one read-only request.
+
 ### v1.72
 - **Shifts can carry your work location.** A new optional **Shift location** setting (popup and Docker dashboard, or `WORK_LOCATION` / `WORK_GEO` for Docker) adds your work address to every timed shift as `LOCATION`. With coordinates, it also adds `GEO` and `X-APPLE-STRUCTURED-LOCATION`, so calendar apps and other planners know where each shift is. Scheduled shifts already on iCloud or Nextcloud get the location on the next sync. Clear the fields to remove it again. Nothing is looked up online.
 

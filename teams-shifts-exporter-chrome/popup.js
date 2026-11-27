@@ -67,6 +67,7 @@ const exportBtn = document.getElementById('exportBtn');
 const downloadICSBtn = document.getElementById('downloadICSBtn');
 const logEl = document.getElementById('log');
 const lastExportEl = document.getElementById('lastExport');
+const lastExportErrorEl = document.getElementById('lastExportError');
 const targetDateEl = document.getElementById('targetDate');
 const importToOutlookEl = document.getElementById('importToOutlook');
 const importToiCloudEl = document.getElementById('importToiCloud');
@@ -161,14 +162,18 @@ chrome.storage.local.get('debugOpenShifts', (d) => {
 });
 
 chrome.storage.local.get(
-  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'includeSignedUpSlots', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess'],
+  ['lastExport', 'lastCount', 'importToOutlook', 'includeOpenShifts', 'includeSignedUpSlots', 'importToiCloud', 'icloudEmail', 'icloudAppPassword', 'icloudCredsSet', 'lastError', 'lastErrorTime', 'lastExportSuccess', 'lastErrorScope'],
   (data) => {
     // Only show error if it's recent (occurred after last successful export)
     const hasRecentError = data.lastError && (
       !data.lastExportSuccess || !data.lastErrorTime ||
       data.lastErrorTime > data.lastExportSuccess
     );
-    if (hasRecentError) {
+    if (hasRecentError && data.lastErrorScope === 'destination') {
+      // The export worked; only a calendar destination failed. Keep the date visible.
+      lastExportErrorEl.textContent = `Not delivered — ${data.lastError}`;
+      lastExportErrorEl.style.display = 'block';
+    } else if (hasRecentError) {
       logEl.textContent = `Last sync failed: ${data.lastError}`;
       logEl.className = '';
     }
@@ -254,6 +259,7 @@ const nextcloudUserEl = document.getElementById('nextcloudUser');
 const nextcloudAppPasswordEl = document.getElementById('nextcloudAppPassword');
 const nextcloudCalendarNameEl = document.getElementById('nextcloudCalendarName');
 const saveNextcloudCredsBtn = document.getElementById('saveNextcloudCredsBtn');
+const testNextcloudBtn = document.getElementById('testNextcloudBtn');
 const nextcloudCredsStatusEl = document.getElementById('nextcloudCredsStatus');
 
 function setNextcloudCredsCollapsed(collapsed) {
@@ -261,12 +267,13 @@ function setNextcloudCredsCollapsed(collapsed) {
   nextcloudCredsChevronEl.classList.toggle('open', !collapsed);
 }
 
-// Origin pattern for the user-entered server (e.g. https://cloud.example.com/*)
+// Permission pattern for the user-entered server (e.g. https://cloud.example.com/*).
+// Host only: match patterns take no port. Same rule as hostPermissionPattern in background.js.
 function nextcloudOriginPattern(url) {
   try {
     const u = new URL(url.trim().replace(/\/+$/, ''));
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
-    return `${u.origin}/*`;
+    return `${u.protocol}//${u.hostname}/*`;
   } catch { return null; }
 }
 
@@ -321,7 +328,10 @@ saveNextcloudCredsBtn.addEventListener('click', () => {
     nextcloudCredsStatusEl.style.color = '#F48120';
     return;
   }
+  // No testing while the permission prompt is open
+  testNextcloudBtn.disabled = true;
   chrome.permissions.request({ origins: [pattern] }, (granted) => {
+    testNextcloudBtn.disabled = false;
     if (granted) {
       nextcloudAppPasswordEl.value = '';
       nextcloudCredsStatusEl.textContent = '';
@@ -337,6 +347,30 @@ saveNextcloudCredsBtn.addEventListener('click', () => {
     nextcloudAppPassword: password,
     nextcloudCalendarName: calendarName,
     nextcloudCredsSet: true,
+  });
+});
+
+// Test connection: one read-only request with the saved settings.
+testNextcloudBtn.addEventListener('click', () => {
+  chrome.storage.local.get('nextcloudUrl', (data) => {
+    const pattern = nextcloudOriginPattern(data.nextcloudUrl);
+    chrome.permissions.contains({ origins: pattern ? [pattern] : [] }, (has) => {
+      if (pattern && !has) {
+        nextcloudCredsStatusEl.style.color = '#F48120';
+        nextcloudCredsStatusEl.textContent = 'Grant access first (press Save)';
+        return;
+      }
+      nextcloudCredsStatusEl.style.color = '#7bacc8';
+      nextcloudCredsStatusEl.textContent = 'Testing…';
+      chrome.runtime.sendMessage({ action: 'TEST_NEXTCLOUD' }, (r) => {
+        if (r && r.success) {
+          nextcloudCredsStatusEl.textContent = `Connection OK (HTTP ${r.status}).`;
+        } else {
+          nextcloudCredsStatusEl.style.color = '#F48120';
+          nextcloudCredsStatusEl.textContent = r?.error || 'No answer from the extension.';
+        }
+      });
+    });
   });
 });
 
@@ -384,6 +418,19 @@ includeSignedUpSlotsEl.addEventListener('change', () => {
 
 const clearReimportBtn = document.getElementById('clearReimportBtn');
 
+// Sets or clears the "Not delivered" line from a response carrying per-destination
+// results. A destination that was not run has a null result and is not listed.
+function showNotDelivered(response) {
+  const r = response || {};
+  const failed = [
+    r.outlookResult && !r.outlookResult.success ? `Outlook: ${r.outlookResult.error || 'no response'}` : null,
+    r.icloudResult && !r.icloudResult.success ? `iCloud: ${r.icloudResult.error}` : null,
+    r.nextcloudResult && !r.nextcloudResult.success ? `Nextcloud: ${r.nextcloudResult.error}` : null,
+  ].filter(Boolean).join(' · ');
+  lastExportErrorEl.textContent = failed ? `Not delivered — ${failed}` : '';
+  lastExportErrorEl.style.display = failed ? 'block' : 'none';
+}
+
 clearReimportBtn.addEventListener('click', () => {
   clearReimportBtn.disabled = true;
   clearReimportBtn.textContent = 'Clearing & re-importing...';
@@ -394,6 +441,11 @@ clearReimportBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ action: 'CLEAR_AND_REIMPORT' }, (response) => {
     clearReimportBtn.disabled = false;
     clearReimportBtn.textContent = 'Clear & Re-import Selected';
+
+    // Update the line on success and on a partial failure alike
+    if (response && (response.success || response.outlookResult || response.icloudResult || response.nextcloudResult)) {
+      showNotDelivered(response);
+    }
 
     if (response && response.success) {
       let msg = `Done — cleared old events, imported ${response.count ?? '?'} shifts.`;
@@ -463,6 +515,9 @@ exportBtn.addEventListener('click', () => {
       }
       logEl.textContent = msg;
       logEl.className = 'ok';
+
+      // Show a failed destination under the date, which updates either way
+      showNotDelivered(response);
 
       // Refresh status
       chrome.runtime.sendMessage({ action: 'GET_STATUS' }, (data) => {
